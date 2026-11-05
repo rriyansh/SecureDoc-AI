@@ -1,66 +1,45 @@
 import os
 from dotenv import load_dotenv
-
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import RetrievalQA
-
+from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy, context_precision
+from src.rag_pipeline import SecureRAGPipeline
 
 load_dotenv()
 
-VECTORSTORE_DIR = os.path.join(os.path.dirname(__file__), "..", "vectorstore")
-EMBEDDING_MODEL = "text-embedding-ada-002"
-LLM_MODEL = "gpt-3.5-turbo"
+# 1. Create a tiny evaluation dataset
+eval_data = {
+    "question": [
+        "How long must customer data be retained?",
+        "Who can access customer data?"
+    ],
+    "ground_truth": [
+        "Customer data must be retained for a minimum of 3 years and a maximum of 7 years.",
+        "Access is restricted to authorized personnel only."
+    ]
+}
 
+# 2. Run each question through your RAG pipeline to get answers and contexts
+pipeline = SecureRAGPipeline()
+answers = []
+contexts = []
 
-EVAL_DATA = [
-    {
-        "question": "What is the document retention policy?",
-        "ground_truth": "Documents are retained for a period of 7 years unless otherwise specified by legal requirements.",
-    },
-    {
-        "question": "Is multi-factor authentication required?",
-        "ground_truth": "Yes, multi-factor authentication is required for all users accessing the document management system.",
-    },
-]
+for q in eval_data["question"]:
+    # We need the raw retrieved documents, not just the final answer
+    retrieved_docs = pipeline.retriever.get_relevant_documents(q)
+    contexts.append([doc.page_content for doc in retrieved_docs])
+    answers.append(pipeline.query(q))
 
+# Add the generated answers and contexts to the dataset
+eval_data["answer"] = answers
+eval_data["contexts"] = contexts
 
-def run_evaluation(vectorstore_dir: str = VECTORSTORE_DIR, model: str = LLM_MODEL):
-    embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
-    vectorstore = FAISS.load_local(vectorstore_dir, embeddings)
-    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 4})
-    llm = ChatOpenAI(model=model, temperature=0.1)
-    qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
+dataset = Dataset.from_dict(eval_data)
 
-    results = []
-    for item in EVAL_DATA:
-        answer_text = qa.run(item["question"])
-        results.append(
-            {
-                "question": item["question"],
-                "answer": answer_text,
-                "contexts": [doc.page_content for doc in retriever.get_relevant_documents(item["question"])],
-                "ground_truth": item["ground_truth"],
-            }
-        )
+# 3. Run RAGAS evaluation
+results = evaluate(
+    dataset,
+    metrics=[faithfulness, answer_relevancy, context_precision]
+)
 
-    dataset = {
-        "question": [r["question"] for r in results],
-        "answer": [r["answer"] for r in results],
-        "contexts": [r["contexts"] for r in results],
-        "ground_truth": [r["ground_truth"] for r in results],
-    }
-
-    score = evaluate(
-        dataset=dataset,
-        metrics=[faithfulness, answer_relevancy, context_precision],
-    )
-    print(score)
-    return score
-
-
-if __name__ == "__main__":
-    run_evaluation()
+print(results)
