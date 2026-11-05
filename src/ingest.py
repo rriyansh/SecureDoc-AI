@@ -1,42 +1,38 @@
 import os
 from dotenv import load_dotenv
-
-from langchain.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
 
 load_dotenv()
 
-DOCUMENTS_DIR = os.path.join(os.path.dirname(__file__), "..", "documents")
-VECTORSTORE_DIR = os.path.join(os.path.dirname(__file__), "..", "vectorstore")
-EMBEDDING_MODEL = "text-embedding-ada-002"
+def ingest_documents():
+    # 1. Load all .txt files from the documents folder
+    documents = []
+    for filename in os.listdir("documents"):
+        if filename.endswith(".txt"):
+            loader = TextLoader(os.path.join("documents", filename))
+            documents.extend(loader.load())
 
+    if not documents:
+        print("No documents found in the 'documents/' folder.")
+        return
 
-def load_documents(documents_dir: str = DOCUMENTS_DIR):
-    loader = DirectoryLoader(documents_dir, glob="**/*.txt", loader_cls=TextLoader)
-    return loader.load()
-
-
-def chunk_documents(documents, chunk_size: int = 500, chunk_overlap: int = 50):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    # 2. Split documents into manageable chunks
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50
     )
-    return splitter.split_documents(documents)
+    chunks = text_splitter.split_documents(documents)
 
+    # 3. Create embeddings and store in FAISS
+    embeddings = OpenAIEmbeddings()
+    vectorstore = FAISS.from_documents(chunks, embeddings)
 
-def build_vectorstore(chunks, embedding_model: str = EMBEDDING_MODEL):
-    embeddings = OpenAIEmbeddings(model=embedding_model)
-    return FAISS.from_documents(chunks, embeddings)
-
-
-def ingest(documents_dir: str = DOCUMENTS_DIR, vectorstore_dir: str = VECTORSTORE_DIR):
-    documents = load_documents(documents_dir)
-    chunks = chunk_documents(documents)
-    vectorstore = build_vectorstore(chunks)
-    vectorstore.save_local(vectorstore_dir)
-    print(f"Ingested {len(chunks)} chunks into {vectorstore_dir}")
-
+    # 4. Save the vector store locally
+    vectorstore.save_local("vectorstore")
+    print(f"Ingested {len(chunks)} chunks and saved to 'vectorstore/'.")
 
 if __name__ == "__main__":
-    ingest()
+    ingest_documents()
