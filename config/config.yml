@@ -1,0 +1,15 @@
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo
+    parameters:
+      temperature: 0.1
+      max_tokens: 512
+
+instructions:
+  - type: general
+    content: You are a helpful assistant that answers questions based on provided company documents.
+
+rails:
+  input:
+    - config/rails/input.co

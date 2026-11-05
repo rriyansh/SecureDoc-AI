@@ -1,0 +1,16 @@
+SecureDoc-AI Company Policy
+
+1. Data Security
+All enterprise documents must be encrypted at rest and in transit. Access to sensitive data is restricted to authorized personnel only.
+
+2. User Authentication
+Multi-factor authentication is required for all users accessing the document management system.
+
+3. Document Retention
+Documents are retained for a period of 7 years unless otherwise specified by legal requirements.
+
+4. Information Sharing
+Internal documents may not be shared with external parties without written approval from the compliance officer.
+
+5. Incident Reporting
+Security incidents must be reported to the IT security team within 24 hours of discovery.

@@ -1,0 +1,10 @@
+langchain==0.2.0
+langchain-community==0.2.0
+langchain-openai==0.1.0
+faiss-cpu==1.8.0
+openai==1.30.0
+python-dotenv==1.0.1
+ne
+motify==0.2.0
+ragas==0.1.9
+nltk==3.8.1

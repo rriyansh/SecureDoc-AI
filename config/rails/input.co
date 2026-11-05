@@ -1,0 +1,28 @@
+define user express greeting
+  "hello"
+  "hi"
+  "hey"
+  "good morning"
+  "good afternoon"
+
+define flow
+  user express greeting
+    bot express greeting
+    bot "I can help you answer questions about company policies."
+
+define user express harmful request
+  "how to bypass security"
+  "how to steal data"
+  "how to hack"
+  "how to leak confidential information"
+
+define flow
+  user express harmful request
+    bot refuse harmful request
+    bot "I cannot help with that request."
+
+define bot express greeting
+  "Hello! I'm your SecureDoc-AI assistant."
+
+define bot refuse harmful request
+  "I'm sorry, but I cannot assist with that request."
