@@ -1,24 +1,24 @@
+"""FastAPI application entry point."""
+
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
-app = FastAPI(title="SecureDoc-AI Enhanced API")
+from api.schemas import QueryRequest, QueryResponse
+from api.middleware import SecurityMiddleware
+from src.rag_pipeline import SecureRAGPipeline
 
+app = FastAPI(title="SecureDoc AI", version="0.1.0")
 
-class QueryRequest(BaseModel):
-    question: str
+app.add_middleware(SecurityMiddleware)
 
-
-async def stream_answer(question: str):
-    yield f"data: Processing question: {question}\n\n"
-    yield f"data: Answer placeholder for '{question}'\n\n"
-
-
-@app.post("/query")
-async def query(request: QueryRequest):
-    return StreamingResponse(stream_answer(request.question), media_type="text/event-stream")
+pipeline = SecureRAGPipeline()
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/query", response_model=QueryResponse)
+async def query(request: QueryRequest):
+    answer = pipeline.query(request.question)
+    return QueryResponse(answer=answer)

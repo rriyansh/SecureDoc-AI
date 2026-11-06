@@ -2,8 +2,33 @@ models:
   - type: main
     engine: openai
     model: gpt-4o-mini
+    temperature: 0.1
+    max_tokens: 1024
+
+embedding:
+  model: text-embedding-3-small
+  dimension: 1536
+  batch_size: 100
+
+vectorstore:
+  provider: qdrant
+  host: localhost
+  port: 6333
+  collection: secure_docs
+
+chunking:
+  chunk_size: 512
+  chunk_overlap: 50
+
+retrieval:
+  top_k: 5
+  rerank_top_k: 25
+  hybrid_alpha: 0.5
 
 rails:
   input:
     flows:
       - block prompt injection
+  output:
+    flows:
+      - block harmful output

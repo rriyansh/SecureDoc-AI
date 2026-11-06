@@ -1,38 +1,62 @@
-import os
-from dotenv import load_dotenv
-from langchain_community.document_loaders import TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
+"""Document ingestion pipeline."""
 
-load_dotenv()
+from pathlib import Path
+from typing import List
 
-def ingest_documents():
-    # 1. Load all .txt files from the documents folder
-    documents = []
-    for filename in os.listdir("documents"):
-        if filename.endswith(".txt"):
-            loader = TextLoader(os.path.join("documents", filename))
-            documents.extend(loader.load())
+from src.config import config
+from src.logger import get_logger
 
-    if not documents:
-        print("No documents found in the 'documents/' folder.")
-        return
+logger = get_logger(__name__)
 
-    # 2. Split documents into manageable chunks
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50
-    )
-    chunks = text_splitter.split_documents(documents)
 
-    # 3. Create embeddings and store in FAISS
-    embeddings = OpenAIEmbeddings()
-    vectorstore = FAISS.from_documents(chunks, embeddings)
+class DocumentChunk:
+    def __init__(self, text: str, metadata: dict):
+        self.text = text
+        self.metadata = metadata
 
-    # 4. Save the vector store locally
-    vectorstore.save_local("vectorstore")
-    print(f"Ingested {len(chunks)} chunks and saved to 'vectorstore/'.")
 
-if __name__ == "__main__":
-    ingest_documents()
+def load_documents(doc_dir: str = "documents") -> List[DocumentChunk]:
+    """Load all .txt documents from a directory."""
+    chunks: List[DocumentChunk] = []
+    path = Path(doc_dir)
+    if not path.exists():
+        logger.warning("Document directory %s does not exist", doc_dir)
+        return chunks
+
+    for file_path in path.glob("*.txt"):
+        try:
+            text = file_path.read_text(encoding="utf-8")
+            chunks.append(
+                DocumentChunk(text=text, metadata={"source": str(file_path)})
+            )
+            logger.info("Loaded document %s", file_path.name)
+        except OSError as exc:
+            logger.error("Failed to read %s: %s", file_path, exc)
+
+    return chunks
+
+
+def chunk_text(text: str, chunk_size: int = None, chunk_overlap: int = None) -> List[str]:
+    """Simple whitespace-aware text chunking."""
+    chunk_size = chunk_size or config.chunk_size
+    chunk_overlap = chunk_overlap or config.chunk_overlap
+    words = text.split()
+    chunks: List[str] = []
+    i = 0
+    while i < len(words):
+        chunk = " ".join(words[i : i + chunk_size])
+        chunks.append(chunk)
+        i += chunk_size - chunk_overlap
+    return chunks
+
+
+def ingest(doc_dir: str = "documents") -> List[DocumentChunk]:
+    """Run the full ingestion flow: load + chunk documents."""
+    documents = load_documents(doc_dir)
+    total_chunks = 0
+    for doc in documents:
+        pieces = chunk_text(doc.text)
+        total_chunks += len(pieces)
+        logger.info("Document %s produced %d chunks", doc.metadata["source"], len(pieces))
+    logger.info("Ingestion complete: %d documents, %d chunks", len(documents), total_chunks)
+    return documents

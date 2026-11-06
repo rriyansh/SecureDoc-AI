@@ -1,48 +1,33 @@
-import os
-from dotenv import load_dotenv
-from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain.chains import RetrievalQA
-from nemoguardrails import RailsConfig, LLMRails
+"""RAG pipeline orchestrating ingest, retrieve, and generate."""
 
-load_dotenv()
+from typing import List
+
+from src.config import config
+from src.hybrid_retriever import HybridRetriever, RetrievalResult
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class SecureRAGPipeline:
     def __init__(self):
-        # Load the vector store
-        embeddings = OpenAIEmbeddings()
-        self.vectorstore = FAISS.load_local(
-            "vectorstore", 
-            embeddings, 
-            allow_dangerous_deserialization=True
+        self.retriever = HybridRetriever()
+
+    def retrieve(self, query: str) -> List[RetrievalResult]:
+        return self.retriever.retrieve(query)
+
+    def query(self, question: str) -> str:
+        """Answer a question through the RAG pipeline."""
+        results = self.retrieve(question)
+        if not results:
+            return "I could not find relevant information in the documents."
+        context = "\n\n".join(r.text for r in results[: config.top_k])
+        answer = self._generate(question, context)
+        return answer
+
+    def _generate(self, question: str, context: str) -> str:
+        """Placeholder LLM generation step."""
+        return (
+            f"Based on the retrieved context:\n{context}\n\n"
+            f"Answer to '{question}': (LLM generation placeholder)"
         )
-        self.retriever = self.vectorstore.as_retriever()
-
-        # Initialize the LLM
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-        # Set up the standard RAG chain
-        self.qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            chain_type="stuff",
-            retriever=self.retriever
-        )
-
-        # Load NeMo Guardrails configuration
-        config = RailsConfig.from_path("./config")
-        self.guarded_rails = LLMRails(config)
-
-    def query(self, user_question: str) -> str:
-        # First, run the input through guardrails
-        guard_response = self.guarded_rails.generate(messages=[{
-            "role": "user",
-            "content": user_question
-        }])
-
-        # If the guardrail blocked the request, return its message
-        if "I cannot comply" in guard_response["content"]:
-            return guard_response["content"]
-
-        # Otherwise, proceed with the standard RAG pipeline
-        rag_result = self.qa_chain.invoke({"query": user_question})
-        return rag_result["result"]
