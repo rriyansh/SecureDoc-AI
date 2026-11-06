@@ -1,87 +1,67 @@
-"""Application configuration loader."""
+"""Centralised configuration using Pydantic Settings."""
 
-import os
-from typing import Any, Dict
+from functools import lru_cache
+from pathlib import Path
 
-import yaml
-from dotenv import load_dotenv
-
-load_dotenv()
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Config:
-    """Centralized configuration accessor."""
+class Settings(BaseSettings):
+    """Application settings loaded from environment or .env file."""
 
-    def __init__(self, config_path: str = "config/config.yml"):
-        self.config_path = config_path
-        self._data: Dict[str, Any] = self._load()
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
-    def _load(self) -> Dict[str, Any]:
-        if not os.path.exists(self.config_path):
-            return {}
-        with open(self.config_path, "r") as fh:
-            return yaml.safe_load(fh) or {}
+    # --- OpenAI ---
+    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    openai_model: str = Field("gpt-4o-mini", alias="OPENAI_MODEL")
+    openai_embedding_model: str = Field(
+        "text-embedding-3-small", alias="OPENAI_EMBEDDING_MODEL"
+    )
 
-    def get(self, key: str, default: Any = None) -> Any:
-        keys = key.split(".")
-        node: Any = self._data
-        for part in keys:
-            if not isinstance(node, dict) or part not in node:
-                return default
-            node = node[part]
-        return node
+    # --- App ---
+    app_name: str = Field("SecureDoc AI", alias="APP_NAME")
+    app_version: str = Field("1.0.0", alias="APP_VERSION")
+    environment: str = Field("production", alias="ENVIRONMENT")
+    log_level: str = Field("INFO", alias="LOG_LEVEL")
 
-    @property
-    def models(self) -> list:
-        return self.get("models", [])
+    # --- Paths ---
+    vectorstore_path: Path = Field(Path("./vectorstore"), alias="VECTORSTORE_PATH")
+    docstore_path: Path = Field(Path("./docstore"), alias="DOCSTORE_PATH")
+    documents_path: Path = Field(Path("./documents"), alias="DOCUMENTS_PATH")
+    config_path: Path = Field(Path("./config"), alias="CONFIG_PATH")
 
-    @property
-    def openai_model(self) -> str:
-        return os.getenv("OPENAI_MODEL", self.get("models.0.model", "gpt-4o-mini"))
+    # --- Retrieval ---
+    child_chunk_size: int = Field(400, alias="CHILD_CHUNK_SIZE")
+    child_chunk_overlap: int = Field(50, alias="CHILD_CHUNK_OVERLAP")
+    parent_chunk_size: int = Field(2000, alias="PARENT_CHUNK_SIZE")
+    parent_chunk_overlap: int = Field(200, alias="PARENT_CHUNK_OVERLAP")
+    retriever_top_k: int = Field(4, alias="RETRIEVER_TOP_K")
+    bm25_weight: float = Field(0.4, alias="BM25_WEIGHT")
+    vector_weight: float = Field(0.6, alias="VECTOR_WEIGHT")
 
-    @property
-    def openai_api_key(self) -> str:
-        return os.getenv("OPENAI_API_KEY", "")
+    # --- API ---
+    api_host: str = Field("0.0.0.0", alias="API_HOST")
+    api_port: int = Field(8000, alias="API_PORT")
+    api_cors_origins: str = Field("*", alias="API_CORS_ORIGINS")
+    api_rate_limit: int = Field(60, alias="API_RATE_LIMIT")
 
-    @property
-    def embedding_model(self) -> str:
-        return os.getenv("EMBEDDING_MODEL", self.get("embedding.model", "text-embedding-3-small"))
-
-    @property
-    def chunk_size(self) -> int:
-        return int(os.getenv("CHUNK_SIZE", self.get("chunking.chunk_size", 512)))
-
-    @property
-    def chunk_overlap(self) -> int:
-        return int(os.getenv("CHUNK_OVERLAP", self.get("chunking.chunk_overlap", 50)))
-
-    @property
-    def top_k(self) -> int:
-        return int(os.getenv("TOP_K", self.get("retrieval.top_k", 5)))
+    @field_validator("vectorstore_path", "docstore_path", "documents_path", "config_path")
+    @classmethod
+    def ensure_path(cls, v: Path) -> Path:
+        return v.expanduser().resolve()
 
     @property
-    def rerank_top_k(self) -> int:
-        return int(os.getenv("RERANK_TOP_K", self.get("retrieval.rerank_top_k", 25)))
-
-    @property
-    def hybrid_alpha(self) -> float:
-        return float(os.getenv("HYBRID_ALPHA", self.get("retrieval.hybrid_alpha", 0.5)))
-
-    @property
-    def qdrant_host(self) -> str:
-        return os.getenv("QDRANT_HOST", self.get("vectorstore.host", "localhost"))
-
-    @property
-    def qdrant_port(self) -> int:
-        return int(os.getenv("QDRANT_PORT", self.get("vectorstore.port", 6333)))
-
-    @property
-    def qdrant_collection(self) -> str:
-        return os.getenv("QDRANT_COLLECTION", self.get("vectorstore.collection", "secure_docs"))
-
-    @property
-    def vector_dim(self) -> int:
-        return int(os.getenv("VECTOR_DIM", self.get("embedding.dimension", 1536)))
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
 
 
-config = Config()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return a cached Settings instance."""
+    return Settings()  # type: ignore[call-arg]
