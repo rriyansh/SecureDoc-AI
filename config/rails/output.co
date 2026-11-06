@@ -1,0 +1,11 @@
+define user express harmful output
+  "leak"
+  "expose secrets"
+  "reveal credentials"
+
+define flow
+  user express harmful output
+    bot refuse harmful output
+
+define bot refuse harmful output
+  "I cannot provide that information."
