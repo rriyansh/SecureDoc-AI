@@ -1,0 +1,1 @@
+"""SecureDoc AI - CLI package."""
