@@ -1,16 +1,19 @@
-SecureDoc-AI Company Policy
+Company Policy: Data Retention and Access Control
 
-1. Data Security
-All enterprise documents must be encrypted at rest and in transit. Access to sensitive data is restricted to authorized personnel only.
+1. Data Retention
+All customer data must be retained for a minimum of 3 years and a maximum of 7 years.
+After 7 years, data must be securely deleted in accordance with the data destruction policy.
+Retention periods may be extended only with written approval from the Chief Data Officer.
 
-2. User Authentication
-Multi-factor authentication is required for all users accessing the document management system.
+2. Access Control
+Access to customer data is restricted to authorized personnel only.
+All access must be logged and audited quarterly.
+Multi-factor authentication is mandatory for all systems containing customer data.
 
-3. Document Retention
-Documents are retained for a period of 7 years unless otherwise specified by legal requirements.
+3. Incident Response
+Any suspected data breach must be reported to the security team within 24 hours.
+The security team will initiate the incident response plan and notify affected parties
+in accordance with applicable regulations.
 
-4. Information Sharing
-Internal documents may not be shared with external parties without written approval from the compliance officer.
-
-5. Incident Reporting
-Security incidents must be reported to the IT security team within 24 hours of discovery.
+4. Data Classification
+Customer data is classified as "Confidential" and must be encrypted at rest and in transit.
