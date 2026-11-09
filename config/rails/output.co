@@ -1,11 +1,10 @@
-define user express harmful output
-  "leak"
-  "expose secrets"
-  "reveal credentials"
+define bot refuse ungrounded
+  "I don't have enough information to answer that based on the provided documents."
 
-define flow
-  user express harmful output
-    bot refuse harmful output
+define flow block ungrounded response
+  bot response is not grounded in context
+  bot refuse ungrounded
 
-define bot refuse harmful output
-  "I cannot provide that information."
+define flow block sensitive data
+  bot response contains "password" or "secret" or "api_key" or "private key"
+  bot say "I cannot share sensitive information."
