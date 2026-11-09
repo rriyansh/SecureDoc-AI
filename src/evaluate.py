@@ -1,114 +1,84 @@
-"""RAGAS-based evaluation of retrieval and generation."""
+"""RAGAS evaluation using LangChain-wrapped LLM/embeddings."""
+
+from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional
 
-from src.config import config
+from datasets import Dataset
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from ragas import evaluate
+from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas.llms import LangchainLLMWrapper
+from ragas.metrics import (
+    answer_relevancy,
+    context_precision,
+    context_recall,
+    faithfulness,
+)
+
+from src.config import get_settings
+from src.hybrid_retriever import retrieve_and_rerank
 from src.logger import get_logger
-from src.metrics import metrics
-from src.audit import get_audit_logger, AuditEventType, AuditLevel
+from src.rag_pipeline import build_rag_chain, safe_query
 
-logger = get_logger(__name__)
+log = get_logger("evaluate")
+
+EVAL_SET = {
+    "question": [
+        "How long must customer data be retained?",
+        "Who can access customer data?",
+        "What should happen if a data breach is suspected?",
+    ],
+    "ground_truth": [
+        "Customer data must be retained for a minimum of 3 years and a maximum of 7 years.",
+        "Access to customer data is restricted to authorized personnel only.",
+        "Any suspected data breach must be reported to the security team within 24 hours.",
+    ],
+}
 
 
-def run_evaluation(
-    dataset_path: str = None,
-    output_path: str = None,
-    user_id: str = "system",
-    request_id: str = "",
-) -> Dict[str, Any]:
-    """Run RAGAS evaluation against a dataset."""
-    dataset_path = dataset_path or config.eval_dataset_path
-    output_path = output_path or "tests/eval_results.json"
+def run_evaluation(output_path: str | None = None) -> dict:
+    s = get_settings()
+    log.info("Starting RAGAS evaluation")
 
-    logger.info("Running RAGAS evaluation on dataset: %s", dataset_path)
+    chain = build_rag_chain()
+    answers: list[str] = []
+    contexts: list[list[str]] = []
 
-    start_time = time.time()
-    audit = get_audit_logger()
+    for q in EVAL_SET["question"]:
+        log.info(f"Evaluating: {q}")
+        docs = retrieve_and_rerank(q)
+        contexts.append([d.page_content for d in docs])
+        answers.append(safe_query(chain, q))
 
-    # Load dataset
-    try:
-        with open(dataset_path, "r") as f:
-            dataset = json.load(f)
-    except FileNotFoundError:
-        logger.error("Evaluation dataset not found: %s", dataset_path)
-        return {"error": "Dataset not found", "status": "failed"}
-    except json.JSONDecodeError as e:
-        logger.error("Invalid JSON in dataset: %s", e)
-        return {"error": "Invalid dataset format", "status": "failed"}
+    data = {**EVAL_SET, "answer": answers, "contexts": contexts}
+    dataset = Dataset.from_dict(data)
 
-    # Placeholder for actual RAGAS evaluation
-    # In production, this would use the ragas library
-    results = {
-        "status": "completed",
-        "dataset": dataset_path,
-        "num_samples": len(dataset) if isinstance(dataset, list) else 0,
-        "metrics": {
-            "faithfulness": 0.85,
-            "answer_relevancy": 0.78,
-            "context_precision": 0.82,
-            "context_recall": 0.75,
-        },
-        "duration_seconds": time.time() - start_time,
-    }
-
-    # Save results
-    try:
-        with open(output_path, "w") as f:
-            json.dump(results, f, indent=2)
-        logger.info("Evaluation results saved to: %s", output_path)
-    except Exception as e:
-        logger.error("Failed to save evaluation results: %s", e)
-
-    # Record metrics
-    metrics.record_evaluation("success", results.get("metrics", {}))
-
-    # Log to audit
-    audit.log(
-        event_type=AuditEventType.EVALUATION,
-        level=AuditLevel.INFO,
-        user_id=user_id,
-        request_id=request_id,
-        resource="evaluation",
-        action="run_evaluation",
-        outcome="success",
-        details=results,
+    evaluator_llm = LangchainLLMWrapper(
+        ChatOpenAI(model=s.openai_model, api_key=s.openai_api_key.get_secret_value())
+    )
+    evaluator_emb = LangchainEmbeddingsWrapper(
+        OpenAIEmbeddings(
+            model=s.openai_embedding_model,
+            api_key=s.openai_api_key.get_secret_value(),
+        )
     )
 
-    logger.info("Evaluation completed in %.1fs", results["duration_seconds"])
-    return results
+    result = evaluate(
+        dataset,
+        metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+        llm=evaluator_llm,
+        embeddings=evaluator_emb,
+    )
+
+    scores = {k: float(v) for k, v in result.items() if isinstance(v, (int, float))}
+    log.success(f"Scores: {scores}")
+
+    out = Path(output_path or "evaluation_results.json")
+    out.write_text(json.dumps(scores, indent=2), encoding="utf-8")
+    return scores
 
 
-def create_eval_dataset(
-    questions: List[str],
-    ground_truths: List[str],
-    contexts: List[List[str]],
-    output_path: str = "tests/eval_dataset.json",
-) -> None:
-    """Create evaluation dataset in RAGAS format."""
-    dataset = []
-    for i, (q, gt, ctx) in enumerate(zip(questions, ground_truths, contexts)):
-        dataset.append({
-            "question": q,
-            "ground_truth": gt,
-            "contexts": ctx,
-            "id": f"eval_{i}",
-        })
-
-    with open(output_path, "w") as f:
-        json.dump(dataset, f, indent=2)
-
-    logger.info("Created evaluation dataset with %d samples at %s", len(dataset), output_path)
-
-
-def load_eval_results(path: str = "tests/eval_results.json") -> Optional[Dict[str, Any]]:
-    """Load previous evaluation results."""
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return None
-    except json.JSONDecodeError:
-        return None
+if __name__ == "__main__":
+    run_evaluation()
