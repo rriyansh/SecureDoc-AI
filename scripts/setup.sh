@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-echo "==> Setting up SecureDoc AI environment"
-python3 -m venv .venv
+echo "🔧 SecureDoc AI — Setup"
+command -v python3 >/dev/null || { echo "python3 required"; exit 1; }
+[ -d ".venv" ] || python3 -m venv .venv
+# shellcheck disable=SC1091
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
 pip install -r requirements-dev.txt
-pre-commit install
-cp .env.example .env
-echo "==> Setup complete. Edit .env with your API keys."
+[ -f ".env" ] || cp .env.example .env
+mkdir -p vectorstore docstore audit logs
+touch vectorstore/.gitkeep docstore/.gitkeep audit/.gitkeep logs/.gitkeep
+echo "✅ Ready. Edit .env → make ingest → make run"
