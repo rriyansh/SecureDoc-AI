@@ -1,13 +1,3 @@
-define user express retrieval request
-  "find documents about"
-  "search for"
-  "look up"
-  "retrieve information on"
-  "show me documents regarding"
-
-define flow
-  user express retrieval request
-    bot execute retrieval
-
-define bot execute retrieval
-  "Searching the knowledge base for relevant documents..."
+define flow refuse empty context
+  $context = ""
+  bot say "I don't have enough information to answer that based on the provided documents."
