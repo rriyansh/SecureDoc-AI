@@ -1,43 +1,29 @@
-.PHONY: install lint test format up down build-index run-api run-cli run-eval clean
+.DEFAULT_GOAL := help
+PYTHON := python
 
-PYTHON ?= python3
-PIP ?= pip3
+.PHONY: help setup install ingest run cli eval test test-fast lint format clean docker docker-up docker-down rotate-keys health
 
-install:
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
-	$(PIP) install -r requirements-dev.txt
+help:
+	@echo "make setup install ingest run cli eval test lint format clean docker docker-up docker-down rotate-keys health"
 
-lint:
-	ruff check src api cli tests
-	black --check src api cli tests
-
-format:
-	ruff check --fix src api cli tests
-	black src api cli tests
-
-test:
-	pytest tests -v
-
-up:
-	docker-compose up -d
-
-down:
-	docker-compose down
-
-build-index:
-	$(PYTHON) -m src.ingest --build
-
-run-api:
-	uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-
-run-cli:
-	$(PYTHON) -m cli.main
-
-run-eval:
-	$(PYTHON) -m src.evaluate
+setup:      ; bash scripts/setup.sh
+install:    ; $(PYTHON) -m pip install -r requirements-dev.txt
+ingest:     ; $(PYTHON) -m src.ingest
+run:        ; uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+cli:        ; $(PYTHON) -m cli.main
+eval:       ; $(PYTHON) -m src.evaluate
+test:       ; $(PYTHON) -m pytest
+test-fast:  ; $(PYTHON) -m pytest --no-cov
+lint:       ; ruff check src api cli tests && mypy src api cli --ignore-missing-imports && bandit -c pyproject.toml -r src api -q
+format:     ; ruff format src api cli tests && ruff check --fix src api cli tests
+rotate-keys:; bash scripts/rotate_keys.sh
+health:     ; bash scripts/healthcheck.sh
+docker:     ; docker build -t securedoc-ai:2.0.0 .
+docker-up:  ; docker compose up --build -d
+docker-down:; docker compose down
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
-	rm -rf .pytest_cache .coverage htmlcov build dist *.egg-info
+	rm -rf .pytest_cache .ruff_cache .mypy_cache htmlcov .coverage coverage.xml
+	rm -rf vectorstore/* docstore/* logs/* audit/* evaluation_results.json
+	touch vectorstore/.gitkeep docstore/.gitkeep logs/.gitkeep audit/.gitkeep
