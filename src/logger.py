@@ -1,72 +1,65 @@
-"""Application logging setup."""
+"""Structured logging with automatic secret redaction."""
 
-import logging
+from __future__ import annotations
+
+import re
 import sys
-import json
-from typing import Any, Dict
-from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from src.config import config
+from loguru import logger
 
+from src.config import get_settings
 
-class JSONFormatter(logging.Formatter):
-    """JSON log formatter for structured logging."""
+_configured = False
 
-    def format(self, record: logging.LogRecord) -> str:
-        log_data: Dict[str, Any] = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-            "module": record.module,
-            "function": record.funcName,
-            "line": record.lineno,
-        }
-
-        if record.exc_info:
-            log_data["exception"] = self.formatException(record.exc_info)
-
-        if hasattr(record, "extra_fields"):
-            log_data.update(record.extra_fields)
-
-        return json.dumps(log_data)
+_SECRET_PATTERNS = [
+    (re.compile(r"sk-[A-Za-z0-9_\-]{8,}"), "sk-***"),
+    (re.compile(r"(?i)(api[_-]?key|token|secret|password)\s*[=:]\s*\S+"), r"\1=***"),
+]
 
 
-def get_logger(name: str = "secure-doc-ai", json_format: bool = False) -> logging.Logger:
-    """Return a configured logger instance."""
-    logger = logging.getLogger(name)
-    if logger.handlers:
-        return logger
-
-    level = os_log_level()
-    logger.setLevel(level)
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(level)
-
-    if json_format or config.log_level == "JSON":
-        formatter = JSONFormatter()
-    else:
-        formatter = logging.Formatter(
-            fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.propagate = False
-    return logger
+def _redact_filter(record: dict[str, Any]) -> bool:
+    msg = record.get("message")
+    if isinstance(msg, str):
+        for pattern, repl in _SECRET_PATTERNS:
+            msg = pattern.sub(repl, msg)
+        record["message"] = msg
+    return True
 
 
-def os_log_level() -> int:
-    import os
+def setup_logger() -> None:
+    global _configured
+    if _configured:
+        return
+    s = get_settings()
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
 
-    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
-    return getattr(logging, level_name, logging.INFO)
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level=s.log_level,
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        ),
+        colorize=True,
+        filter=_redact_filter,
+    )
+    logger.add(
+        log_dir / "securedoc_{time:YYYY-MM-DD}.log",
+        rotation="10 MB",
+        retention="14 days",
+        level=s.log_level,
+        enqueue=True,
+        filter=_redact_filter,
+    )
+    _configured = True
 
 
-def set_log_level(level: str) -> None:
-    """Set log level for all loggers."""
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
-    logging.getLogger().setLevel(numeric_level)
-    for handler in logging.getLogger().handlers:
-        handler.setLevel(numeric_level)
+def get_logger(name: str = "securedoc"):
+    setup_logger()
+    return logger.bind(module=name)
