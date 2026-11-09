@@ -1,34 +1,30 @@
-version: "3.8"
-
 services:
-  qdrant:
-    image: qdrant/qdrant:v1.9
-    ports:
-      - "6333:6333"
+  securedoc-api:
+    build: { context: ., dockerfile: Dockerfile }
+    image: securedoc-ai:2.0.0
+    container_name: securedoc-api
+    ports: ["8000:8000"]
+    env_file: [.env]
     volumes:
-      - qdrant_storage:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    depends_on:
-      qdrant:
-        condition: service_healthy
-    volumes:
-      - ./config:/app/config:ro
       - ./documents:/app/documents:ro
-      - ./docstore:/app/docstore
+      - ./config:/app/config:ro
       - ./vectorstore:/app/vectorstore
-
-volumes:
-  qdrant_storage:
+      - ./docstore:/app/docstore
+      - ./audit:/app/audit
+      - ./logs:/app/logs
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks: [securedoc-net]
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+networks:
+  securedoc-net: { driver: bridge }
