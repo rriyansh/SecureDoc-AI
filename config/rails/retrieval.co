@@ -1,0 +1,13 @@
+define user express retrieval request
+  "find documents about"
+  "search for"
+  "look up"
+  "retrieve information on"
+  "show me documents regarding"
+
+define flow
+  user express retrieval request
+    bot execute retrieval
+
+define bot execute retrieval
+  "Searching the knowledge base for relevant documents..."

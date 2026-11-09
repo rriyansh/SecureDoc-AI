@@ -6,23 +6,138 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  PYTHON_VERSION: "3.11"
+
 jobs:
   lint-and-test:
+    name: Lint and Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-      - name: Run lint
+
+      - name: Run Ruff
         run: |
           ruff check src api cli tests
+          ruff format --check src api cli tests
+
+      - name: Run Black
+        run: |
           black --check src api cli tests
+
+      - name: Run MyPy
+        run: |
+          mypy src api cli
+
       - name: Run tests
-        run: pytest tests -v
+        run: |
+          pytest tests -v --tb=short --cov=src --cov=api --cov=cli --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run MyPy (strict)
+        run: |
+          mypy --strict src api cli
+
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.9
+        ports:
+          - 6333:6333
+        options: --health-cmd="curl -f http://localhost:6333/" --health-interval=10s --health-timeout=5s --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Wait for Qdrant
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:6333/ > /dev/null; then
+              echo "Qdrant is ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run integration tests
+        env:
+          QDRANT_HOST: localhost
+          QDRANT_PORT: 6333
+        run: |
+          pytest tests -v -k "integration" --tb=short || true
+
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mkdocs mkdocs-material
+
+      - name: Build docs
+        run: |
+          mkdocs build --strict
+
+      - name: Upload docs
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: site/
