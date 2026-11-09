@@ -311,6 +311,3 @@ MIT — see LICENSE.
 3. Run make lint && make test
 4. Open a Pull Request
 
----
-
-Built with ❤️ for secure enterprise RAG.
