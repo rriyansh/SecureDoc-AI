@@ -1,113 +1,100 @@
-"""Query API routes."""
+"""RAG query endpoints (standard + streaming)."""
 
-from typing import Optional, List
-from fastapi import APIRouter, Depends, Request, status
-from pydantic import BaseModel, Field
+from __future__ import annotations
 
-from api.dependencies import get_current_user, check_rate_limit, get_pipeline, CommonParams, require_scopes_dependency
-from api.schemas import QueryRequest, QueryResponse, ErrorResponse
-from src.rag_pipeline import SecureRAGPipeline
+import json
+import time
+
+from fastapi import APIRouter, Depends, HTTPException
+from sse_starlette.sse import EventSourceResponse
+
+from api.dependencies import rate_limited
+from api.schemas import QueryRequest, QueryResponse
+from src.audit import record as audit
+from src.cache import cache_key, get_response_cache
+from src.config import get_settings
 from src.logger import get_logger
+from src.metrics import GUARDRAIL_BLOCKS, QUERY_LATENCY
+from src.rag_pipeline import build_rag_chain, safe_query
+from src.security import scan
 
-logger = get_logger(__name__)
+log = get_logger("api.query")
+router = APIRouter(prefix="/api/v1", tags=["rag"])
 
-router = APIRouter(prefix="/v1", tags=["query"])
 
-
-@router.post(
-    "/query",
-    response_model=QueryResponse,
-    responses={
-        400: {"model": ErrorResponse},
-        401: {"model": ErrorResponse},
-        429: {"model": ErrorResponse},
-        500: {"model": ErrorResponse},
-    },
-    summary="Query the RAG pipeline",
-    description="Submit a question to the SecureDoc AI RAG pipeline and receive an answer based on retrieved documents.",
-)
+@router.post("/query", response_model=QueryResponse)
 async def query(
-    request: Request,
-    query_request: QueryRequest,
-    params: CommonParams = Depends(),
-    user: dict = Depends(check_rate_limit),
-    pipeline: SecureRAGPipeline = Depends(get_pipeline),
+    request: QueryRequest, principal: str = Depends(rate_limited)
 ) -> QueryResponse:
-    """Process a query through the RAG pipeline."""
-    request_id = getattr(request.state, "request_id", None)
-    client_ip = request.client.host if request.client else None
+    start = time.perf_counter()
+    s = get_settings()
 
-    logger.info("Processing query from user=%s, ip=%s", user["user_id"], client_ip)
+    pre = scan(request.question)
+    if not pre.clean:
+        GUARDRAIL_BLOCKS.labels(reason="input_scan").inc()
+        audit("query_blocked", principal=principal, question=request.question)
+        raise HTTPException(status_code=400, detail="Request blocked by input safety check")
+
+    cache = get_response_cache() if s.cache_enabled else None
+    ck = cache_key(principal, request.question)
+
+    if cache:
+        cached = cache.get(ck)
+        if cached is not None:
+            latency = (time.perf_counter() - start) * 1000
+            QUERY_LATENCY.observe(latency / 1000)
+            audit("query_cache_hit", principal=principal, question=request.question)
+            return QueryResponse(
+                question=request.question, answer=cached,
+                latency_ms=round(latency, 2), cached=True,
+            )
 
     try:
-        answer = pipeline.query(
-            question=query_request.question,
-            user_id=user["user_id"],
-            request_id=request_id,
-            ip_address=client_ip,
-            use_cache=params.use_cache,
-            use_rewrite=params.use_rewrite,
-        )
+        chain = build_rag_chain()
+        answer = safe_query(chain, request.question)
+    except Exception as exc:
+        log.exception("RAG failed")
+        audit("query_error", principal=principal, error=str(exc))
+        raise HTTPException(status_code=500, detail="Pipeline failure") from exc
 
-        return QueryResponse(
-            answer=answer,
-            request_id=request_id,
-        )
+    if cache:
+        cache.set(ck, answer)
 
-    except Exception as e:
-        logger.error("Query processing failed: %s", e)
-        raise
+    latency = (time.perf_counter() - start) * 1000
+    QUERY_LATENCY.observe(latency / 1000)
+    audit("query", principal=principal, question=request.question, latency_ms=latency)
+    return QueryResponse(question=request.question, answer=answer, latency_ms=round(latency, 2))
 
 
-@router.post(
-    "/query/stream",
-    summary="Stream query response",
-    description="Stream the answer from the RAG pipeline (future implementation).",
-)
+async def _stream(question: str, principal: str):
+    yield {"event": "status", "data": json.dumps({"stage": "scanning"})}
+    pre = scan(question)
+    if not pre.clean:
+        GUARDRAIL_BLOCKS.labels(reason="input_scan").inc()
+        audit("query_blocked", principal=principal, question=question)
+        yield {"event": "error", "data": json.dumps({"error": "blocked"})}
+        return
+
+    yield {"event": "status", "data": json.dumps({"stage": "generating"})}
+    try:
+        chain = build_rag_chain()
+        try:
+            async for chunk in chain.astream(pre.redacted_text):
+                if chunk:
+                    yield {"event": "token", "data": json.dumps({"text": chunk})}
+        except (NotImplementedError, TypeError):
+            result = chain.invoke(pre.redacted_text)
+            yield {"event": "token", "data": json.dumps({"text": result})}
+
+        yield {"event": "done", "data": json.dumps({"status": "complete"})}
+        audit("query_stream", principal=principal, question=question)
+    except Exception as exc:
+        log.exception("Stream failed")
+        yield {"event": "error", "data": json.dumps({"error": str(exc)})}
+
+
+@router.post("/query/stream")
 async def query_stream(
-    query_request: QueryRequest,
-    user: dict = Depends(require_scopes_dependency(["query:stream"])),
-) -> dict:
-    """Stream query response (placeholder)."""
-    return {"detail": "Streaming not yet implemented"}
-
-
-class BatchQueryRequest(BaseModel):
-    questions: List[str] = Field(..., min_items=1, max_items=10)
-    use_cache: bool = True
-    use_rewrite: bool = True
-
-
-class BatchQueryResponse(BaseModel):
-    results: List[QueryResponse]
-
-
-@router.post(
-    "/query/batch",
-    response_model=BatchQueryResponse,
-    summary="Batch query processing",
-    description="Process multiple queries in a single request.",
-)
-async def query_batch(
-    request: Request,
-    batch_request: BatchQueryRequest,
-    user: dict = Depends(check_rate_limit),
-    pipeline: SecureRAGPipeline = Depends(get_pipeline),
-) -> BatchQueryResponse:
-    """Process multiple queries in batch."""
-    request_id = getattr(request.state, "request_id", None)
-    client_ip = request.client.host if request.client else None
-
-    results = []
-    for question in batch_request.questions:
-        answer = pipeline.query(
-            question=question,
-            user_id=user["user_id"],
-            request_id=request_id,
-            ip_address=client_ip,
-            use_cache=batch_request.use_cache,
-            use_rewrite=batch_request.use_rewrite,
-        )
-        results.append(QueryResponse(answer=answer, request_id=request_id))
-
-    return BatchQueryResponse(results=results)
+    request: QueryRequest, principal: str = Depends(rate_limited)
+) -> EventSourceResponse:
+    return EventSourceResponse(_stream(request.question, principal))
