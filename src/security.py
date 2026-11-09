@@ -1,156 +1,83 @@
-"""Security utilities: PII detection, input sanitization, secrets management."""
+"""PII detection, prompt-injection heuristics, sanitisation."""
 
-import os
+from __future__ import annotations
+
 import re
-import hashlib
-import secrets
-from typing import Dict, List, Optional, Set
-from functools import lru_cache
+from dataclasses import dataclass, field
 
-from src.config import config
 from src.logger import get_logger
 
-logger = get_logger(__name__)
+log = get_logger("security")
 
-
-PII_PATTERNS: Dict[str, re.Pattern] = {
-    "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
-    "phone": re.compile(r"\b(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b"),
-    "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
-    "credit_card": re.compile(r"\b(?:\d{4}[-\s]?){3}\d{4}\b"),
-    "ip_address": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
-    "api_key": re.compile(r"\b(?:sk|pk|api)[-_]?[A-Za-z0-9]{20,}\b"),
-    "aws_access_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    "jwt": re.compile(r"\beyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\b"),
+_PII_PATTERNS: dict[str, re.Pattern] = {
+    "EMAIL": re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"),
+    "SSN": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+    "CREDIT_CARD": re.compile(r"\b(?:\d[ -]?){13,19}\b"),
+    "AADHAAR": re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b"),
+    "PAN": re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"),
+    "IPV4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+    "PHONE": re.compile(r"(?<!\d)(?:\+?\d{1,3}[\s\-]?)?\d{10}(?!\d)"),
 }
 
-SENSITIVE_KEYS: Set[str] = {
-    "password",
-    "passwd",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "access_token",
-    "refresh_token",
-    "private_key",
-    "client_secret",
-    "auth",
-    "authorization",
-    "credential",
-}
+_INJECTION_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"ignore\s+(all\s+)?(previous|prior)\s+instructions",
+        r"disregard\s+(all\s+)?(previous|prior)\s+instructions",
+        r"forget\s+(everything|all\s+previous)",
+        r"you\s+are\s+now\s+\w",
+        r"act\s+as\s+(an?\s+)?unrestricted",
+        r"jailbreak",
+        r"system\s*prompt\s*(reveal|show|print)",
+        r"repeat\s+(your\s+)?(system|initial)\s+prompt",
+        r"<\s*script",
+    ]
+]
+
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
-def detect_pii(text: str) -> List[Dict[str, str]]:
-    """Detect PII in text and return list of findings."""
-    findings = []
-    for pii_type, pattern in PII_PATTERNS.items():
-        for match in pattern.finditer(text):
-            findings.append({
-                "type": pii_type,
-                "value": match.group(),
-                "start": match.start(),
-                "end": match.end(),
-            })
-    return findings
+@dataclass(frozen=True)
+class ScanResult:
+    clean: bool
+    pii_found: dict[str, list[str]] = field(default_factory=dict)
+    redacted_text: str = ""
+    injection_hits: list[str] = field(default_factory=list)
 
 
-def redact_pii(text: str, replacement: str = "[REDACTED]") -> str:
-    """Redact PII from text."""
-    result = text
-    for pii_type, pattern in PII_PATTERNS.items():
-        result = pattern.sub(replacement, result)
-    return result
+def detect_pii(text: str) -> dict[str, list[str]]:
+    return {name: pat.findall(text) for name, pat in _PII_PATTERNS.items() if pat.search(text)}
 
 
-def sanitize_input(text: str, max_length: int = 2000) -> str:
-    """Sanitize user input: trim, limit length, remove control chars."""
-    if not text:
-        return ""
-    sanitized = "".join(char for char in text if ord(char) >= 32 or char in "\n\r\t")
-    sanitized = sanitized.strip()
-    if len(sanitized) > max_length:
-        sanitized = sanitized[:max_length]
-        logger.warning("Input truncated to %d characters", max_length)
-    return sanitized
+def redact_pii(text: str, mask: str = "[REDACTED]") -> str:
+    out = text
+    for pat in _PII_PATTERNS.values():
+        out = pat.sub(mask, out)
+    return out
 
 
-def sanitize_dict(data: Dict, sensitive_keys: Optional[Set[str]] = None) -> Dict:
-    """Recursively sanitize dictionary, redacting sensitive keys."""
-    sensitive = sensitive_keys or SENSITIVE_KEYS
-    result = {}
-    for key, value in data.items():
-        if key.lower() in sensitive:
-            result[key] = "[REDACTED]"
-        elif isinstance(value, dict):
-            result[key] = sanitize_dict(value, sensitive)
-        elif isinstance(value, list):
-            result[key] = [
-                sanitize_dict(item, sensitive) if isinstance(item, dict) else item
-                for item in value
-            ]
-        elif isinstance(value, str):
-            result[key] = sanitize_input(value)
-        else:
-            result[key] = value
-    return result
+def detect_prompt_injection(text: str) -> list[str]:
+    return [p.pattern for p in _INJECTION_PATTERNS if p.search(text)]
 
 
-class SecretManager:
-    """Manage secrets with rotation support."""
-
-    def __init__(self, secret_dir: str = "./secrets"):
-        self.secret_dir = secret_dir
-        os.makedirs(secret_dir, exist_ok=True)
-
-    def generate_secret(self, name: str, length: int = 32) -> str:
-        """Generate a new cryptographically secure secret."""
-        secret = secrets.token_urlsafe(length)
-        self.store_secret(name, secret)
-        return secret
-
-    def store_secret(self, name: str, secret: str) -> None:
-        """Store secret to file with restricted permissions."""
-        path = os.path.join(self.secret_dir, f"{name}.secret")
-        with open(path, "w") as f:
-            f.write(secret)
-        os.chmod(path, 0o600)
-        logger.info("Stored secret: %s", name)
-
-    def load_secret(self, name: str) -> Optional[str]:
-        """Load secret from file."""
-        path = os.path.join(self.secret_dir, f"{name}.secret")
-        if not os.path.exists(path):
-            return None
-        with open(path, "r") as f:
-            return f.read().strip()
-
-    def rotate_secret(self, name: str, length: int = 32) -> str:
-        """Rotate a secret: generate new, archive old."""
-        old_secret = self.load_secret(name)
-        if old_secret:
-            archive_path = os.path.join(self.secret_dir, f"{name}.secret.bak")
-            with open(archive_path, "w") as f:
-                f.write(old_secret)
-            os.chmod(archive_path, 0o600)
-        return self.generate_secret(name, length)
-
-    def hash_secret(self, secret: str) -> str:
-        """Return SHA256 hash of secret for verification."""
-        return hashlib.sha256(secret.encode()).hexdigest()
+def sanitize_input(text: str, max_len: int = 4000) -> str:
+    text = _CONTROL_RE.sub("", text)
+    text = re.sub(r"[ \t]+", " ", text).strip()
+    return text[:max_len]
 
 
-secret_manager = SecretManager()
-
-
-@lru_cache(maxsize=128)
-def get_cached_secret(name: str) -> Optional[str]:
-    """Cached secret lookup for performance."""
-    return secret_manager.load_secret(name)
-
-
-def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
-    """Verify HMAC signature for webhook payloads."""
-    import hmac
-    expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)
+def scan(text: str) -> ScanResult:
+    sanitized = sanitize_input(text)
+    pii = detect_pii(sanitized)
+    redacted = redact_pii(sanitized) if pii else sanitized
+    injections = detect_prompt_injection(sanitized)
+    if pii:
+        log.warning(f"PII detected: {list(pii.keys())}")
+    if injections:
+        log.warning(f"Injection heuristics fired: {len(injections)}")
+    return ScanResult(
+        clean=not injections and not pii,
+        pii_found=pii,
+        redacted_text=redacted,
+        injection_hits=injections,
+    )
