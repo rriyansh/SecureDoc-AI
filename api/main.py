@@ -1,96 +1,53 @@
-"""FastAPI application entry point."""
+"""FastAPI application with lifespan management."""
 
-import uuid
-import time
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Response
+
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from prometheus_client import make_asgi_app
 
-from api.routes import query, health, admin
-from api.middleware import SecurityMiddleware, RateLimitMiddleware, RequestIDMiddleware
-from api.schemas import QueryRequest, QueryResponse
-from src.rag_pipeline import SecureRAGPipeline
-from src.metrics import metrics
+from api.middleware import RequestContextMiddleware
+from api.routes import admin, health, query
+from src.config import get_settings
 from src.logger import get_logger
-from src.config import config
 
-logger = get_logger(__name__)
-
-pipeline = SecureRAGPipeline()
+log = get_logger("api")
+settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
-    logger.info("Starting SecureDoc AI API")
-    # Startup: initialize connections, warm caches, etc.
+    log.info(f"Starting {settings.app_name} v{settings.app_version}")
+    try:
+        from src.rag_pipeline import build_rag_chain
+        build_rag_chain()
+        log.success("RAG chain warm-started.")
+    except Exception as exc:
+        log.error(f"Warm-start failed: {exc}")
     yield
-    # Shutdown: cleanup
-    logger.info("Shutting down SecureDoc AI API")
+    log.info("Shutting down.")
 
 
 app = FastAPI(
-    title="SecureDoc AI",
-    version="0.1.0",
-    description="Guardrailed Enterprise RAG Infrastructure",
+    title=settings.app_name,
+    version=settings.app_version,
+    description="Hardened enterprise RAG with guardrails, auth, caching, and metrics.",
+    docs_url="/docs",
+    redoc_url="/redoc",
     lifespan=lifespan,
-    docs_url="/docs" if config.get("app.env") != "production" else None,
-    redoc_url="/redoc" if config.get("app.env") != "production" else None,
 )
 
-# Add middleware
-app.add_middleware(RequestIDMiddleware)
-app.add_middleware(SecurityMiddleware)
-app.add_middleware(RateLimitMiddleware)
-
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.get("cors.origins", ["*"]),
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    max_age=600,
 )
+app.add_middleware(RequestContextMiddleware)
 
-# Mount Prometheus metrics
-metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
-
-# Include routers
 app.include_router(health.router)
 app.include_router(query.router)
 app.include_router(admin.router)
-
-
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    """Add processing time header."""
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler."""
-    logger.error("Unhandled exception: %s", exc, exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error", "request_id": getattr(request.state, "request_id", None)},
-    )
-
-
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {
-        "name": "SecureDoc AI",
-        "version": "0.1.0",
-        "description": "Guardrailed Enterprise RAG Infrastructure",
-        "docs": "/docs",
-        "health": "/v1/health",
-    }
