@@ -1,172 +1,83 @@
-"""Document ingestion pipeline."""
+"""Document ingestion with Parent-Child chunking."""
 
-import os
-import time
-from pathlib import Path
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, field
+from __future__ import annotations
 
-from src.config import config
+import shutil
+
+from langchain.retrievers import ParentDocumentRetriever
+from langchain.storage import LocalFileStore
+from langchain.storage._lc_store import create_kv_docstore
+from langchain_community.document_loaders import TextLoader
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from src.config import get_settings
 from src.logger import get_logger
-from src.metrics import metrics
-from src.audit import get_audit_logger, AuditEventType, AuditLevel
-from src.security import sanitize_input, detect_pii, redact_pii
+from src.metrics import INDEX_DOCS
+from src.utils import ensure_dirs
 
-logger = get_logger(__name__)
-
-
-@dataclass
-class DocumentChunk:
-    text: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    embedding: Optional[List[float]] = None
-    chunk_id: str = ""
-
-    def __post_init__(self):
-        if not self.chunk_id:
-            import uuid
-            self.chunk_id = uuid.uuid4().hex[:12]
+log = get_logger("ingest")
 
 
-@dataclass
-class IngestionResult:
-    documents_processed: int = 0
-    chunks_created: int = 0
-    duration_ms: float = 0.0
-    errors: List[str] = field(default_factory=list)
-    pii_detected: bool = False
-
-
-def load_documents(doc_dir: str = "documents") -> List[DocumentChunk]:
-    """Load all .txt documents from a directory."""
-    chunks: List[DocumentChunk] = []
-    path = Path(doc_dir)
+def _load_documents(path):
     if not path.exists():
-        logger.warning("Document directory %s does not exist", doc_dir)
-        return chunks
-
-    for file_path in path.glob("*.txt"):
-        try:
-            text = file_path.read_text(encoding="utf-8")
-            # Sanitize and check for PII
-            sanitized = sanitize_input(text)
-            pii_findings = detect_pii(sanitized)
-            if pii_findings:
-                logger.warning("PII detected in %s: %d findings", file_path.name, len(pii_findings))
-                sanitized = redact_pii(sanitized)
-
-            chunks.append(
-                DocumentChunk(
-                    text=sanitized,
-                    metadata={
-                        "source": str(file_path),
-                        "filename": file_path.name,
-                        "size": len(text),
-                        "pii_detected": len(pii_findings) > 0,
-                    },
-                )
-            )
-            logger.info("Loaded document %s (%d chars)", file_path.name, len(text))
-        except OSError as exc:
-            logger.error("Failed to read %s: %s", file_path, exc)
-
-    return chunks
+        raise FileNotFoundError(f"Documents path missing: {path}")
+    docs = []
+    for f in sorted(path.glob("*.txt")):
+        log.info(f"Loading {f.name}")
+        docs.extend(TextLoader(str(f), encoding="utf-8").load())
+    if not docs:
+        raise ValueError(f"No .txt files found in {path}")
+    return docs
 
 
-def chunk_text(
-    text: str,
-    chunk_size: int = None,
-    chunk_overlap: int = None,
-    metadata: Optional[Dict[str, Any]] = None,
-) -> List[DocumentChunk]:
-    """Simple whitespace-aware text chunking with metadata preservation."""
-    chunk_size = chunk_size or config.chunk_size
-    chunk_overlap = chunk_overlap or config.chunk_overlap
-    words = text.split()
-    chunks: List[DocumentChunk] = []
-    i = 0
-    chunk_index = 0
-    while i < len(words):
-        chunk_words = words[i: i + chunk_size]
-        chunk_text = " ".join(chunk_words)
-        chunk_meta = (metadata or {}).copy()
-        chunk_meta.update({
-            "chunk_index": chunk_index,
-            "start_word": i,
-            "end_word": min(i + chunk_size, len(words)),
-        })
-        chunks.append(DocumentChunk(text=chunk_text, metadata=chunk_meta))
-        chunk_index += 1
-        i += chunk_size - chunk_overlap
-    return chunks
+def ingest() -> None:
+    s = get_settings()
+    ensure_dirs(s.vectorstore_path, s.docstore_path, s.documents_path)
 
+    documents = _load_documents(s.documents_path)
 
-def ingest(
-    doc_dir: str = "documents",
-    user_id: str = "system",
-    request_id: str = "",
-) -> IngestionResult:
-    """Run the full ingestion flow: load + chunk documents."""
-    start_time = time.time()
-    audit = get_audit_logger()
-
-    documents = load_documents(doc_dir)
-    total_chunks = 0
-    errors = []
-    pii_detected = False
-
-    for doc in documents:
-        try:
-            pieces = chunk_text(doc.text, metadata=doc.metadata)
-            total_chunks += len(pieces)
-            logger.info("Document %s produced %d chunks", doc.metadata.get("source", "unknown"), len(pieces))
-            if doc.metadata.get("pii_detected"):
-                pii_detected = True
-        except Exception as exc:
-            error_msg = f"Failed to chunk {doc.metadata.get('source', 'unknown')}: {exc}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-
-    duration_ms = (time.time() - start_time) * 1000
-
-    result = IngestionResult(
-        documents_processed=len(documents),
-        chunks_created=total_chunks,
-        duration_ms=duration_ms,
-        errors=errors,
-        pii_detected=pii_detected,
+    child_split = RecursiveCharacterTextSplitter(
+        chunk_size=s.child_chunk_size,
+        chunk_overlap=s.child_chunk_overlap,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+    parent_split = RecursiveCharacterTextSplitter(
+        chunk_size=s.parent_chunk_size,
+        chunk_overlap=s.parent_chunk_overlap,
+        separators=["\n\n", "\n", ". ", " ", ""],
     )
 
-    # Log to audit
-    audit.log_ingestion(
-        user_id=user_id,
-        num_documents=len(documents),
-        num_chunks=total_chunks,
-        duration_ms=duration_ms,
-        request_id=request_id,
-        outcome="success" if not errors else "partial",
-        error="; ".join(errors) if errors else None,
+    embeddings = OpenAIEmbeddings(
+        model=s.openai_embedding_model,
+        api_key=s.openai_api_key.get_secret_value(),
     )
 
-    # Record metrics
-    metrics.record_ingestion(len(documents), total_chunks, duration_ms / 1000)
+    if s.vectorstore_path.exists():
+        for item in s.vectorstore_path.iterdir():
+            if item.name == ".gitkeep":
+                continue
+            (shutil.rmtree(item) if item.is_dir() else item.unlink())
 
-    logger.info("Ingestion complete: %d documents, %d chunks in %.1fms", len(documents), total_chunks, duration_ms)
-    return result
+    vectorstore = FAISS(
+        embedding_function=embeddings,
+        index=None, docstore=None, index_to_docstore_id=None,
+    )
+    fs = LocalFileStore(str(s.docstore_path))
+    store = create_kv_docstore(fs)
+
+    retriever = ParentDocumentRetriever(
+        vectorstore=vectorstore,
+        docstore=store,
+        child_splitter=child_split,
+        parent_splitter=parent_split,
+    )
+    retriever.add_documents(documents)
+    vectorstore.save_local(str(s.vectorstore_path))
+    INDEX_DOCS.set(len(documents))
+    log.success(f"Indexed {len(documents)} docs.")
 
 
-def build_index(
-    doc_dir: str = "documents",
-    collection_name: str = None,
-    user_id: str = "system",
-    request_id: str = "",
-) -> IngestionResult:
-    """Build vector index from documents (placeholder for actual vector store integration)."""
-    logger.info("Building vector index from %s", doc_dir)
-    result = ingest(doc_dir, user_id, request_id)
-
-    # Placeholder for actual vector store indexing
-    # This would connect to Qdrant and upsert embeddings
-    logger.info("Index build placeholder - would index %d chunks to vector store", result.chunks_created)
-
-    return result
+if __name__ == "__main__":
+    ingest()
