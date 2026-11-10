@@ -1,313 +1,350 @@
-#  SecureDoc AI v2
 
-Enterprise-grade Retrieval-Augmented Generation (RAG) system for secure document querying with hybrid search, guardrails, authentication, caching, reranking, and automated evaluation.
 
----
+<div align="center">
 
-##  Features
 
-- Hybrid Search — BM25 + FAISS semantic fusion
-- Parent-Child Chunking — Full-context retrieval
-- NeMo Guardrails — Prompt injection & PII protection
-- JWT + API-Key Auth — bcrypt-hashed secrets
-- Token Bucket Rate Limiting — Per-principal
-- TTL + LRU Response Cache — Configurable
-- Cross-Encoder Reranking — Graceful fallback
-- Query Rewriting — Abbreviation expansion + synonyms
-- PII Detection & Redaction — Input + output
-- JSONL Audit Trail — Per-request logging
-- Prometheus Metrics — `/metrics` endpoint
-- Streaming SSE API — Low-latency token streaming
-- RAGAS Evaluation — Faithfulness, precision, recall
-- Docker + CI/CD — Production-ready deployment
+  # SecureDoc AI v2
 
----
+  ### Enterprise-Grade RAG System with Guardrails, Hybrid Search & Audit Control
 
-##  Architecture
+  [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+  [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+  [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+  [![LangChain](https://img.shields.io/badge/LangChain-LCEL-1C3C3C?style=flat-square&logo=langchain&logoColor=white)](https://www.langchain.com/)
+  [![NeMo Guardrails](https://img.shields.io/badge/NVIDIA-NeMo_Guardrails-76B900?style=flat-square&logo=nvidia&logoColor=white)](https://github.com/NVIDIA/NeMo-Guardrails)
+  [![FAISS](https://img.shields.io/badge/FAISS-CPU-00599C?style=flat-square)](https://github.com/facebookresearch/faiss)
+  [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 
-Documents → Ingest (Parent-Child) → Vectorstore (FAISS + Docstore)
-User Query → Hybrid Retriever (BM25 + Vector + Rerank)
-NeMo Input Rails (injection check) → LLM + RAG Chain
-Output Rails (grounding + PII) → Streaming API (SSE / REST)
+  <p align="center">
+    <a href="#features">Features</a> •
+    <a href="#architecture">Architecture</a> •
+    <a href="#tech-stack">Tech Stack</a> •
+    <a href="#quick-start">Quick Start</a> •
+    <a href="#api-endpoints">API Reference</a> •
+    <a href="#security-layers">Security</a>
+  </p>
+
+</div>
 
 ---
 
-## 📁 Project Structure
+## Executive Summary
 
+**SecureDoc AI v2** is an enterprise-grade Retrieval-Augmented Generation (RAG) platform engineered for highly secure document querying. Powered by **LangChain**, **NVIDIA NeMo Guardrails**, **FAISS**, and **FastAPI**, it integrates hybrid vector/keyword retrieval, cross-encoder reranking, robust PII redaction, token-bucket rate limiting, and real-time SSE token streaming.
+
+---
+
+## Features
+
+| Category | Capability | Description |
+| :--- | :--- | :--- |
+| **Retrieval** | Hybrid Search | BM25 + FAISS semantic fusion with parent-child chunking |
+| **Optimization** | Reranking & Rewriting | Cross-encoder reranking and synonym/abbreviation query expansion |
+| **Safety** | NeMo Guardrails | Input prompt injection detection and output grounding verification |
+| **Privacy** | PII Redaction | Automated input/output detection for SSNs, emails, PANs, and IDs |
+| **Auth & Security** | Access Control | JWT and bcrypt-hashed API-Key auth with token-bucket rate limiting |
+| **Performance** | Response Caching | Configurable TTL + LRU caching layer per principal |
+| **Observability** | Audit & Metrics | Per-request JSONL audit trails and Prometheus `/metrics` endpoint |
+| **Streaming** | Real-time SSE | Low-latency token streaming support via Server-Sent Events |
+
+---
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            SecureDoc AI Pipeline                            │
+│                                                                             │
+│   ┌──────────┐    ┌─────────────────────┐    ┌──────────────────────────┐   │
+│   │ Documents│───▶│ Parent-Child Chunk  │───▶│ Vectorstore              │   │
+│   │          │    │ Ingestion Engine    │    │ (FAISS + Docstore)       │   │
+│   └──────────┘    └─────────────────────┘    └────────────┬─────────────┘   │
+│                                                           │                 │
+│                                                           ▼                 │
+│   ┌──────────┐    ┌─────────────────────┐    ┌──────────────────────────┐   │
+│   │  User    │───▶│ NeMo Input Rails    │───▶│ Hybrid Retriever         │   │
+│   │  Query   │    │ (Injection Check)   │    │ (BM25 + Vector + Rerank) │   │
+│   └──────────┘    └─────────────────────┘    └────────────┬─────────────┘   │
+│                                                           │                 │
+│                                                           ▼                 │
+│   ┌──────────┐    ┌─────────────────────┐    ┌──────────────────────────┐   │
+│   │ Response │◀───│ Streaming API       │◀───│ NeMo Output Rails        │   │
+│   │ Payload  │    │ (SSE / REST)        │    │ (Grounding + PII Filter) │   │
+│   └──────────┘    └─────────────────────┘    └──────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+```
+
+---
+
+## Project Structure
+
+```text
 securedoc-ai/
-├── .env.example
-├── .gitignore
-├── .dockerignore
-├── .pre-commit-config.yaml
-├── LICENSE
-├── README.md
-├── Makefile
-├── pyproject.toml
-├── requirements.txt
-├── requirements-dev.txt
-├── docker-compose.yml
-├── Dockerfile
-├── documents/company_policy.txt
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                 # Continuous Integration pipeline
+│       ├── docker-build.yml       # Container build workflow
+│       └── security-scan.yml      # Vulnerability scanning workflow
 ├── config/
-│   ├── config.yml
-│   └── rails/{input.co, output.co, retrieval.co}
-├── src/
-│   ├── __init__.py, config.py, logger.py, utils.py
-│   ├── security.py, auth.py, rate_limiter.py, cache.py
-│   ├── metrics.py, audit.py, query_rewriter.py, reranker.py
-│   ├── ingest.py, hybrid_retriever.py, rag_pipeline.py, evaluate.py
-├── api/
-│   ├── __init__.py, main.py, schemas.py
-│   ├── middleware.py, dependencies.py
-│   └── routes/{__init__.py, query.py, health.py, admin.py}
-├── cli/{__init__.py, main.py}
-├── tests/
-│   ├── conftest.py, test_utils.py, test_retriever.py
-│   ├── test_pipeline.py, test_api.py, test_security.py
-│   ├── test_auth.py, test_rate_limiter.py, test_cache.py
-├── scripts/
-│   ├── setup.sh, build_index.sh, run_eval.sh
-│   ├── rotate_keys.sh, healthcheck.sh
-├── .github/workflows/{ci.yml, docker-build.yml, security-scan.yml}
-├── vectorstore/.gitkeep
-├── docstore/.gitkeep
-├── audit/.gitkeep
-└── logs/.gitkeep
+│   ├── config.yml                 # Global system configuration
+│   └── rails/                     # NeMo Guardrails rules (.co / .yml)
+│       ├── input.co
+│       ├── output.co
+│       └── retrieval.co
+├── documents/                     # Source documents for ingestion
+├── src/                           # Core application package
+│   ├── config.py                  # Settings & environment validation
+│   ├── logger.py                  # Loguru logging setup
+│   ├── security.py                # PII redaction & sanitization
+│   ├── auth.py                    # JWT & API Key authentication
+│   ├── rate_limiter.py            # Token bucket rate limiting
+│   ├── cache.py                   # Response cache (TTL/LRU)
+│   ├── metrics.py                 # Prometheus telemetry
+│   ├── audit.py                   # JSONL audit logging
+│   ├── query_rewriter.py          # Query expansion & synonyms
+│   ├── reranker.py                # Cross-Encoder reranking
+│   ├── ingest.py                  # Parent-child chunking & FAISS setup
+│   ├── hybrid_retriever.py        # Ensemble retriever (BM25 + Vector)
+│   ├── rag_pipeline.py            # LCEL RAG chain orchestration
+│   └── evaluate.py                # RAGAS evaluation runner
+├── api/                           # FastAPI web layer
+│   ├── main.py                    # Application factory
+│   ├── schemas.py                 # Pydantic request/response models
+│   ├── middleware.py             # Security, metrics, & audit middleware
+│   ├── dependencies.py           # Dependency injection & auth guards
+│   └── routes/                    # API route controllers
+│       ├── query.py               # RAG execution & streaming endpoints
+│       ├── health.py              # Probes (liveness/readiness)
+│       └── admin.py               # Cache & operational admin tools
+├── cli/                           # Interactive CLI interface
+├── tests/                         # Test suite (unit, API, security)
+├── scripts/                       # Maintenance & deployment shell scripts
+├── vectorstore/                   # Local FAISS index persistence
+├── docstore/                      # Parent document store persistence
+├── audit/                         # Audit trail JSONL outputs
+├── logs/                          # System execution logs
+├── docker-compose.yml             # Local microservice setup
+├── Dockerfile                     # Hardened container image build
+├── Makefile                       # Development & execution shortcuts
+├── pyproject.toml                 # Tool & linters configuration
+└── requirements.txt               # Production dependencies
+
+```
 
 ---
 
-##  Prerequisites
+## Prerequisites
 
-- Python 3.10+
-- OpenAI API key
-- (Optional) Docker + Docker Compose
-- 4GB+ RAM for cross-encoder reranker
+* **Python**: `3.10+`
+* **API Key**: OpenAI API credentials
+* **Memory**: 4GB+ RAM (required for cross-encoder reranking models)
+* **Container Tooling**: Docker & Docker Compose (optional)
 
 ---
 
-##  Quick Start
+## Quick Start
 
-Step 1: Clone / create project
-git clone <repo-url> securedoc-ai && cd securedoc-ai
+### 1. Project Setup
 
-Step 2: Setup virtualenv + dependencies
+```bash
+git clone [https://github.com/your-org/securedoc-ai.git](https://github.com/your-org/securedoc-ai.git)
+cd securedoc-ai
+
 bash scripts/setup.sh
 chmod +x scripts/*.sh
 
-Step 3: Generate strong keys
+```
+
+### 2. Secret Key Generation
+
+```bash
 bash scripts/rotate_keys.sh
-Copy output into .env
 
-Step 4: Configure
-Edit .env → set OPENAI_API_KEY, API_KEYS, JWT_SECRET, ADMIN_API_KEY
+```
 
-Step 5: Activate
+*Copy the printed key values directly into your `.env` configuration.*
+
+### 3. Environment Configuration
+
+Create `.env` using `.env.example` as a template and set the required variables:
+
+```env
+OPENAI_API_KEY=sk-your-openai-api-key
+API_KEYS=your-hex-32-api-key
+JWT_SECRET=your-hex-32-jwt-secret-min-32-chars
+ADMIN_API_KEY=your-hex-32-admin-key
+
+```
+
+### 4. Indexing & Execution
+
+```bash
+# Activate environment
 source .venv/bin/activate
 
-Step 6: Ingest documents
+# Build document vector index
 make ingest
 
-Step 7: Verify
+# Execute tests & linting
 make test
 make lint
 
-Step 8: Run
+# Launch development server
 make run
 
-API live at: http://localhost:8000
-Docs: http://localhost:8000/docs
-Metrics: http://localhost:8000/metrics
+```
+
+> **Live API Base**: `http://localhost:8000` | **OpenAPI Docs**: `http://localhost:8000/docs` | **Metrics**: `http://localhost:8000/metrics`
 
 ---
 
-##  Required Environment Variables (.env)
+## API Endpoints
 
-Required:
-OPENAI_API_KEY=sk-your-key-here
-API_KEYS=<hex-32>,<hex-32>
-JWT_SECRET=<hex-32-at-least-32-chars>
-ADMIN_API_KEY=<hex-32>
+### System Endpoints
 
-Optional (defaults shown):
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-ENVIRONMENT=production
-LOG_LEVEL=INFO
-CACHE_ENABLED=true
-ENABLE_RERANKER=true
-ENABLE_QUERY_REWRITE=true
-RATE_LIMIT_PER_MINUTE=60
-RATE_LIMIT_BURST=10
+| Method | Endpoint | Auth Required | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/health` | None | Basic service status check |
+| `GET` | `/health/live` | None | Kubernetes liveness probe |
+| `GET` | `/health/ready` | None | Kubernetes readiness probe |
+| `GET` | `/metrics` | None | Prometheus telemetry scraping |
 
-Full template → .env.example
+### RAG & Administrative Endpoints
 
----
+| Method | Endpoint | Auth Required | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/query` | API-Key / JWT | Standard RAG question-answering |
+| `POST` | `/api/v1/query/stream` | API-Key / JWT | Server-Sent Events (SSE) token streaming |
+| `GET` | `/api/v1/admin/stats` | Admin-Key | System cache and rate-limiter stats |
+| `POST` | `/api/v1/admin/cache/clear` | Admin-Key | Flushes active response cache |
+| `POST` | `/api/v1/admin/reload` | Admin-Key | Hot-reloads RAG chain & config |
 
-##  API Endpoints
+### Usage Examples
 
-GET  /health                    → Basic health (no auth)
-GET  /health/live               → Liveness probe (no auth)
-GET  /health/ready              → Readiness probe (no auth)
-GET  /metrics                   → Prometheus metrics (no auth)
-POST /api/v1/query              → RAG query (API-Key / JWT)
-POST /api/v1/query/stream       → SSE stream (API-Key / JWT)
-GET  /api/v1/admin/stats        → Cache & limiter stats (Admin-Key)
-POST /api/v1/admin/cache/clear  → Clear cache (Admin-Key)
-POST /api/v1/admin/reload       → Reload chain (Admin-Key)
+#### Standard Query Execution
 
-Example — Standard query:
+```bash
 curl -X POST http://localhost:8000/api/v1/query \
   -H "X-API-Key: $YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question": "How long is customer data retained?"}'
 
-Example — Streaming query:
+```
+
+#### SSE Streaming Query Execution
+
+```bash
 curl -N -X POST http://localhost:8000/api/v1/query/stream \
   -H "X-API-Key: $YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question": "Who can access customer data?"}'
 
----
-
-##  Make Commands
-
-make setup        → Create venv + install + create .env
-make install      → Install dependencies
-make ingest       → Build vector index
-make run          → Start FastAPI (dev mode)
-make cli          → Interactive CLI
-make eval         → RAGAS evaluation
-make test         → Full test suite with coverage
-make test-fast    → Tests without coverage
-make lint         → ruff + mypy + bandit
-make format       → Auto-format code
-make clean        → Remove caches and artifacts
-make docker       → Build Docker image
-make docker-up    → Start docker compose
-make docker-down  → Stop docker compose
-make rotate-keys  → Generate fresh keys
-make health       → curl health endpoints
-
----
-
-## Testing
-
-make test                        → full suite + coverage
-make test-fast                   → faster (no coverage)
-pytest tests/test_api.py -v      → single file
-make lint                        → ruff + mypy + bandit
-
----
-
-## 📊 Evaluation
-
-make eval
-Output: evaluation_results.json
-Metrics: faithfulness, answer_relevancy, context_precision, context_recall
-
----
-
-##  Docker Deployment
-
-Build:
-docker build -t securedoc-ai:2.0.0 .
-
-Run via compose:
-docker compose up --build -d
-
-Logs:
-docker compose logs -f securedoc-api
-
-Stop:
-docker compose down
-
-Security: non-root user, cap_drop ALL, read-only tmpfs, resource limits, healthcheck.
+```
 
 ---
 
 ## Security Layers
 
-1. Auth — API key / JWT / Admin key (bcrypt-hashed)
-2. Rate Limiting — Token bucket per principal
-3. Input Sanitization — Control chars stripped, length clamped
-4. Prompt Injection Detection — Regex heuristics + NeMo rails
-5. PII Detection & Redaction — Email, SSN, credit card, Aadhaar, PAN, IP, phone
-6. NeMo Guardrails — Input + output + retrieval rails
-7. Output Grounding — Refuses ungrounded answers
-8. Response Cache — TTL + LRU per principal
-9. Audit Trail — JSONL per-request logging
-10. Security Headers — HSTS, CSP, XFO, XCTO, Referrer-Policy
-11. Body Size Guard — 413 on oversize payloads
+1. **Authentication & Authorization**: Multi-principal authentication using JWT (HS256) and bcrypt-hashed API keys.
+2. **Rate Limiting**: Token bucket algorithm applied per authenticated principal.
+3. **Input Sanitization**: Removal of control characters, structural clamping, and input length capping.
+4. **Prompt Injection Guard**: Combination of heuristic regex patterns and NVIDIA NeMo Guardrail policies.
+5. **PII Detection & Redaction**: Input/output automated scrubbing for sensitive identity markers.
+6. **Grounding Assurance**: Output rails check factual alignment against retrieved contexts to prevent hallucinations.
+7. **Response Caching**: Isolated TTL/LRU cache scoping per principal.
+8. **Audit Trail**: Structured JSONL audit logging for compliance.
+9. **Security Headers**: HSTS, Content-Security-Policy (CSP), X-Frame-Options, and X-Content-Type-Options protection.
 
 ---
 
-## Metrics (Prometheus)
+## Make Command Reference
 
-securedoc_requests_total              → Requests by endpoint/method/status
-securedoc_query_latency_seconds       → End-to-end query latency
-securedoc_cache_hits_total            → Cache hits
-securedoc_cache_misses_total          → Cache misses
-securedoc_rate_limit_hits_total       → Rate-limit violations
-securedoc_guardrail_blocks_total      → Guardrail blocks by reason
-securedoc_retrieval_docs_returned     → Docs returned histogram
-securedoc_indexed_documents           → Indexed docs gauge
-securedoc_pii_redactions_total        → PII redactions by type
+| Command | Action |
+| --- | --- |
+| `make setup` | Initialize virtual environment, install dependencies, create `.env` |
+| `make install` | Install workspace packages |
+| `make ingest` | Parse source documents and generate FAISS vector index |
+| `make run` | Launch FastAPI app in development mode with hot reload |
+| `make cli` | Start interactive command-line interface |
+| `make eval` | Run RAGAS framework pipeline evaluation |
+| `make test` | Run complete test suite with coverage report |
+| `make test-fast` | Execute tests without coverage computation |
+| `make lint` | Run Ruff, MyPy, and Bandit security scans |
+| `make format` | Automatically format source code |
+| `make clean` | Purge local build artifacts, caches, and temp files |
+| `make docker` | Build production Docker image |
+| `make docker-up` | Launch local stack using Docker Compose |
+| `make docker-down` | Stop running Docker Compose services |
+| `make rotate-keys` | Generate fresh cryptographic keys |
+
+---
+
+## Docker Deployment
+
+### Build Container
+
+```bash
+docker build -t securedoc-ai:2.0.0 .
+
+```
+
+### Compose Stack Launch
+
+```bash
+docker compose up --build -d
+
+```
+
+### Stack Management
+
+```bash
+# View active container logs
+docker compose logs -f securedoc-api
+
+# Teardown deployment
+docker compose down
+
+```
 
 ---
 
 ## Tech Stack
 
-Orchestration     → LangChain (LCEL)
-Guardrails        → NVIDIA NeMo Guardrails + Colang
-Vector Store      → FAISS (cpu)
-Keyword Search    → rank-bm25
-Reranker          → sentence-transformers (CrossEncoder)
-LLM / Embeddings  → OpenAI (gpt-4o-mini, text-embedding-3-small)
-API               → FastAPI + Uvicorn + sse-starlette
-Auth              → python-jose (JWT) + passlib (bcrypt)
-Metrics           → prometheus-client
-Logging           → loguru
-Config            → pydantic-settings
-Evaluation        → RAGAS
-Testing           → pytest + pytest-asyncio + httpx
-Lint / Types      → ruff + mypy + bandit
-Container         → Docker + Compose
+| Domain | Technology |
+| --- | --- |
+| **Orchestration** | LangChain (LCEL) |
+| **Guardrails** | NVIDIA NeMo Guardrails + Colang |
+| **Vector Store** | FAISS (CPU) |
+| **Keyword Search** | rank-bm25 |
+| **Reranking** | sentence-transformers (CrossEncoder) |
+| **LLM / Embeddings** | OpenAI (`gpt-4o-mini`, `text-embedding-3-small`) |
+| **API Framework** | FastAPI + Uvicorn + `sse-starlette` |
+| **Authentication** | `python-jose` (JWT) + `passlib` (bcrypt) |
+| **Metrics & Logs** | `prometheus-client` + Loguru |
+| **Evaluation** | RAGAS |
+| **Code Hygiene** | Pytest, Ruff, MyPy, Bandit |
 
 ---
 
-##  Workflow Summary
+## Troubleshooting
 
-1. Ingest — Documents → Parent-Child chunks → FAISS index + docstore
-2. Query — User question → Sanitize → Cache check → Query rewrite
-3. Retrieve — Hybrid search (BM25 + Vector) → Cross-encoder rerank
-4. Guard — NeMo input rails → LLM → NeMo output rails
-5. Redact — PII detection on output
-6. Respond — Cache + audit + metrics
-7. Evaluate — RAGAS periodically
-
----
-
-##  Troubleshooting
-
-FAISS index not found       → Run make ingest first
-401 Unauthorized            → Check X-API-Key header matches API_KEYS
-429 Too Many Requests       → Increase RATE_LIMIT_PER_MINUTE or wait
-Reranker unavailable        → Install sentence-transformers or set ENABLE_RERANKER=false
-NeMo import error           → pip install nemoguardrails
-Slow ingestion              → Reduce PARENT_CHUNK_SIZE or batch documents
+| Symptom | Cause | Solution |
+| --- | --- | --- |
+| `FAISS index not found` | Missing vector index | Run `make ingest` before starting API |
+| `401 Unauthorized` | Invalid header key | Check that `X-API-Key` matches `.env` settings |
+| `429 Too Many Requests` | Rate limit breached | Increase `RATE_LIMIT_PER_MINUTE` or wait |
+| `Reranker unavailable` | Missing model package | Install `sentence-transformers` or set `ENABLE_RERANKER=false` |
+| `NeMo import error` | Missing guardrails engine | Run `pip install nemoguardrails` |
 
 ---
 
-## 📄 License
+## License
 
-MIT — see LICENSE.
+Distributed under the **MIT License**. See [LICENSE](https://www.google.com/search?q=LICENSE) for details.
 
----
 
-##  Contributing
 
-1. Fork the repo
-2. Create a feature branch
-3. Run make lint && make test
-4. Open a Pull Request
+```
 
+```
