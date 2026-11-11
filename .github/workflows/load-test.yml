@@ -1,0 +1,16 @@
+name: Load Test
+on:
+  workflow_dispatch:
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install httpx
+      - run: python scripts/benchmark.py || true
+        env:
+          SECUREDOC_URL: ${{ secrets.SECUREDOC_URL }}
+          SECUREDOC_API_KEY: ${{ secrets.SECUREDOC_API_KEY }}
+          BENCH_N: "20"
