@@ -1,9 +1,12 @@
-"""API-key and JWT authentication."""
+"""Advanced auth: API keys, JWT with jti + revocation, admin key."""
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import threading
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -16,6 +19,8 @@ from src.logger import get_logger
 
 log = get_logger("auth")
 _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_revoked: dict[str, float] = {}
+_revoked_lock = threading.Lock()
 
 
 def _principal_from_key(key: str) -> str:
@@ -52,8 +57,10 @@ def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> st
     now = datetime.now(timezone.utc)
     payload = {
         "sub": subject,
+        "iss": s.jwt_issuer,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=s.jwt_expire_minutes)).timestamp()),
+        "jti": str(uuid.uuid4()),
     }
     if extra:
         payload.update(extra)
@@ -63,13 +70,36 @@ def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> st
 def decode_access_token(token: str) -> dict[str, Any]:
     s = get_settings()
     try:
-        return jwt.decode(token, s.jwt_secret.get_secret_value(), algorithms=[s.jwt_algorithm])
+        payload = jwt.decode(
+            token,
+            s.jwt_secret.get_secret_value(),
+            algorithms=[s.jwt_algorithm],
+            issuer=s.jwt_issuer,
+        )
     except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+    jti = payload.get("jti")
+    with _revoked_lock:
+        if jti and jti in _revoked:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
+    return payload
+
+
+def revoke_token(jti: str, ttl_seconds: int = 3600) -> None:
+    with _revoked_lock:
+        _revoked[jti] = time.monotonic() + ttl_seconds
+
+
+def _cleanup_revoked() -> None:
+    now = time.monotonic()
+    with _revoked_lock:
+        for jti in [k for k, exp in _revoked.items() if exp <= now]:
+            del _revoked[jti]
 
 
 def hash_secret(secret: str) -> str:
