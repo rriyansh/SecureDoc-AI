@@ -14,7 +14,7 @@ BANNER = r"""
  \___ \ / _ \/ __| | | |/ _` |/ _ \| |  | |  | |
   ___) |  __/ (__| |_| | (_| |  __/| |__| |  | |
  |____/ \___|\___|\__,_|\__,_|\___||_____/  |_____|
-  SecureDoc AI v2 — Secure Enterprise RAG
+  SecureDoc AI v3 — Advanced Enterprise RAG
 """
 
 
@@ -48,7 +48,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="SecureDoc AI CLI")
     parser.add_argument("-q", "--question")
     args = parser.parse_args()
-    (_single if args.question else _interactive)(*( [args.question] if args.question else [] ))
+    if args.question:
+        _single(args.question)
+    else:
+        _interactive()
 
 
 if __name__ == "__main__":
