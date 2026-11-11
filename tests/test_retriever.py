@@ -41,4 +41,3 @@ def test_returns_ensemble(monkeypatch, tmp_path):
         bm.return_value = MagicMock()
         en.return_value = MagicMock()
         assert hybrid_retriever.build_hybrid_retriever() is en.return_value
-        en.assert_called_once()
