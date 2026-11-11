@@ -9,6 +9,8 @@ repos:
       - id: detect-private-key
       - id: check-added-large-files
         args: ["--maxkb=1024"]
+      - id: check-json
+      - id: check-toml
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
