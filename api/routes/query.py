@@ -1,4 +1,4 @@
-"""RAG query endpoints (standard + streaming)."""
+"""RAG query endpoints with dedup, anomaly, breaker."""
 
 from __future__ import annotations
 
@@ -10,11 +10,14 @@ from sse_starlette.sse import EventSourceResponse
 
 from api.dependencies import rate_limited
 from api.schemas import QueryRequest, QueryResponse
+from src.anomaly import check as anomaly_check
 from src.audit import record as audit
 from src.cache import cache_key, get_response_cache
 from src.config import get_settings
+from src.context import current_request_id
+from src.dedup import get_deduplicator
 from src.logger import get_logger
-from src.metrics import GUARDRAIL_BLOCKS, QUERY_LATENCY
+from src.metrics import DEDUP_HITS, GUARDRAIL_BLOCKS, QUERY_LATENCY
 from src.rag_pipeline import build_rag_chain, safe_query
 from src.security import scan
 
@@ -29,11 +32,17 @@ async def query(
     start = time.perf_counter()
     s = get_settings()
 
+    anomaly_check(principal, request.question)
+
     pre = scan(request.question)
     if not pre.clean:
         GUARDRAIL_BLOCKS.labels(reason="input_scan").inc()
         audit("query_blocked", principal=principal, question=request.question)
         raise HTTPException(status_code=400, detail="Request blocked by input safety check")
+
+    if s.dedup_enabled and get_deduplicator().is_duplicate(principal, request.question):
+        DEDUP_HITS.inc()
+        log.warning(f"Dedup: {principal}")
 
     cache = get_response_cache() if s.cache_enabled else None
     ck = cache_key(principal, request.question)
@@ -47,6 +56,7 @@ async def query(
             return QueryResponse(
                 question=request.question, answer=cached,
                 latency_ms=round(latency, 2), cached=True,
+                request_id=current_request_id(),
             )
 
     try:
@@ -63,7 +73,10 @@ async def query(
     latency = (time.perf_counter() - start) * 1000
     QUERY_LATENCY.observe(latency / 1000)
     audit("query", principal=principal, question=request.question, latency_ms=latency)
-    return QueryResponse(question=request.question, answer=answer, latency_ms=round(latency, 2))
+    return QueryResponse(
+        question=request.question, answer=answer,
+        latency_ms=round(latency, 2), request_id=current_request_id(),
+    )
 
 
 async def _stream(question: str, principal: str):
@@ -83,7 +96,7 @@ async def _stream(question: str, principal: str):
                 if chunk:
                     yield {"event": "token", "data": json.dumps({"text": chunk})}
         except (NotImplementedError, TypeError):
-            result = chain.invoke(pre.redacted_text)
+            result = safe_query(chain, pre.redacted_text)
             yield {"event": "token", "data": json.dumps({"text": result})}
 
         yield {"event": "done", "data": json.dumps({"status": "complete"})}
