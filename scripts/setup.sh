@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-echo "🔧 SecureDoc AI — Setup"
+echo "🔧 SecureDoc AI v3 — Setup"
 command -v python3 >/dev/null || { echo "python3 required"; exit 1; }
 [ -d ".venv" ] || python3 -m venv .venv
 # shellcheck disable=SC1091
