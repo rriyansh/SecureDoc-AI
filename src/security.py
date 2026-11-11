@@ -1,8 +1,12 @@
-"""PII detection, prompt-injection heuristics, sanitisation."""
+"""Advanced security: PII, injection, unicode/encoded attacks, HTML escaping."""
 
 from __future__ import annotations
 
+import base64
+import binascii
+import html
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 from src.logger import get_logger
@@ -35,6 +39,9 @@ _INJECTION_PATTERNS = [
 ]
 
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]")
+_BIDI_RE = re.compile(r"[\u202a-\u202e\u2066-\u2069]")
+_B64_RE = re.compile(r"\b(?:[A-Za-z0-9+/]{20,}={0,2})\b")
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,8 @@ class ScanResult:
     pii_found: dict[str, list[str]] = field(default_factory=dict)
     redacted_text: str = ""
     injection_hits: list[str] = field(default_factory=list)
+    encoded_payloads: int = 0
+    unicode_suspicious: bool = False
 
 
 def detect_pii(text: str) -> dict[str, list[str]]:
@@ -60,24 +69,67 @@ def detect_prompt_injection(text: str) -> list[str]:
     return [p.pattern for p in _INJECTION_PATTERNS if p.search(text)]
 
 
+def detect_encoded_payloads(text: str) -> int:
+    """Detect possible base64/hex encoded payloads."""
+    count = 0
+    for m in _B64_RE.findall(text):
+        try:
+            base64.b64decode(m, validate=True)
+            count += 1
+        except (binascii.Error, ValueError):
+            pass
+    return count
+
+
+def normalize_unicode(text: str) -> str:
+    """NFKC normalization to defeat homoglyph attacks."""
+    return unicodedata.normalize("NFKC", text)
+
+
+def strip_hidden_chars(text: str) -> tuple[str, bool]:
+    """Remove zero-width and bidi characters."""
+    suspicious = bool(_ZERO_WIDTH_RE.search(text) or _BIDI_RE.search(text))
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = _BIDI_RE.sub("", text)
+    return text, suspicious
+
+
 def sanitize_input(text: str, max_len: int = 4000) -> str:
     text = _CONTROL_RE.sub("", text)
     text = re.sub(r"[ \t]+", " ", text).strip()
     return text[:max_len]
 
 
+def escape_html(text: str) -> str:
+    return html.escape(text, quote=True)
+
+
 def scan(text: str) -> ScanResult:
+    """Full security scan."""
+    text = normalize_unicode(text)
+    text, hidden = strip_hidden_chars(text)
     sanitized = sanitize_input(text)
+
     pii = detect_pii(sanitized)
     redacted = redact_pii(sanitized) if pii else sanitized
     injections = detect_prompt_injection(sanitized)
-    if pii:
-        log.warning(f"PII detected: {list(pii.keys())}")
-    if injections:
-        log.warning(f"Injection heuristics fired: {len(injections)}")
+    encoded = detect_encoded_payloads(sanitized)
+
+    suspicious_unicode = hidden or bool(re.search(r"[\u0400-\u04ff\u0370-\u03ff]", sanitized))
+    if suspicious_unicode:
+        log.warning("Suspicious unicode detected (possible homoglyph attack)")
+
+    clean = not injections and not pii and encoded == 0
+    if not clean:
+        log.warning(
+            f"Security: pii={list(pii.keys())} inject={len(injections)} encoded={encoded}"
+        )
+
     return ScanResult(
-        clean=not injections and not pii,
+        clean=clean,
         pii_found=pii,
         redacted_text=redacted,
         injection_hits=injections,
+        encoded_payloads=encoded,
+        unicode_suspicious=suspicious_unicode,
     )
