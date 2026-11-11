@@ -3,8 +3,7 @@
 from prometheus_client import Counter, Gauge, Histogram
 
 REQUESTS_TOTAL = Counter(
-    "securedoc_requests_total", "Total HTTP requests",
-    ["endpoint", "method", "status"],
+    "securedoc_requests_total", "Total HTTP requests", ["endpoint", "method", "status"]
 )
 QUERY_LATENCY = Histogram(
     "securedoc_query_latency_seconds", "Query latency",
@@ -20,7 +19,9 @@ RETRIEVAL_DOCS = Histogram(
     "securedoc_retrieval_docs_returned", "Docs returned",
     buckets=(1, 2, 4, 6, 8, 10, 20, 50),
 )
-INDEX_DOCS = Gauge("securedoc_indexed_documents", "Indexed documents")
-PII_REDACTIONS = Counter(
-    "securedoc_pii_redactions_total", "PII redactions", ["type"]
-)
+INDEX_DOCS = Gauge("securedoc_indexed_documents", "Indexed docs")
+PII_REDACTIONS = Counter("securedoc_pii_redactions_total", "PII redactions", ["type"])
+CIRCUIT_OPEN = Counter("securedoc_circuit_open_total", "Circuit open events", ["name"])
+DEDUP_HITS = Counter("securedoc_dedup_hits_total", "Dedup suppressions")
+ANOMALY_HITS = Counter("securedoc_anomaly_hits_total", "Anomaly detections")
+LLM_FALLBACK = Counter("securedoc_llm_fallback_total", "LLM fallback invocations")
