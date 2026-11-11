@@ -1,7 +1,7 @@
 services:
   securedoc-api:
     build: { context: ., dockerfile: Dockerfile }
-    image: securedoc-ai:2.0.0
+    image: securedoc-ai:3.0.0
     container_name: securedoc-api
     ports: ["8000:8000"]
     env_file: [.env]
