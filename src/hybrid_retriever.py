@@ -1,4 +1,4 @@
-"""Hybrid BM25 + FAISS retriever with optional reranking."""
+"""Hybrid retriever with adaptive k and reranking."""
 
 from __future__ import annotations
 
@@ -33,14 +33,16 @@ def build_hybrid_retriever() -> EnsembleRetriever:
 
     if not (s.vectorstore_path / "index.faiss").exists():
         raise FileNotFoundError(
-            f"FAISS index missing at {s.vectorstore_path}. Run `make ingest` first."
+            f"FAISS index missing at {s.vectorstore_path}. Run `make ingest`."
         )
 
     embeddings = OpenAIEmbeddings(
         model=s.openai_embedding_model,
         api_key=s.openai_api_key.get_secret_value(),
     )
-    vs = FAISS.load_local(str(s.vectorstore_path), embeddings, allow_dangerous_deserialization=True)
+    vs = FAISS.load_local(
+        str(s.vectorstore_path), embeddings, allow_dangerous_deserialization=True
+    )
     vec = vs.as_retriever(search_kwargs={"k": s.retriever_top_k})
 
     bm25 = BM25Retriever.from_documents(_load_raw(s.documents_path))
