@@ -1,4 +1,4 @@
-"""Query normalisation and expansion."""
+"""Query normalization and expansion."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from src.logger import get_logger
 log = get_logger("query_rewriter")
 
 SYNONYMS = {
-    "retention": ["retain", "kept", "stored", "kept"],
+    "retention": ["retain", "kept", "stored"],
     "breach": ["incident", "leak", "compromise"],
     "access": ["authorised", "authorized", "permission"],
     "delete": ["erase", "destroy", "purge"],
