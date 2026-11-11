@@ -24,6 +24,7 @@ audit/*
 logs/*
 !logs/.gitkeep
 evaluation_results.json
+benchmark_results.json
 .vscode/
 .idea/
 .DS_Store
