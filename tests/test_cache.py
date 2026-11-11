@@ -27,3 +27,9 @@ def test_lru_eviction():
 def test_cache_key():
     assert cache_key("a", "b") == cache_key("a", "b")
     assert cache_key("a", "b") != cache_key("a", "c")
+
+
+def test_encrypted_cache():
+    c = TTLCache(max_size=10, ttl_seconds=60, encrypt=True)
+    c.set("k", "secret")
+    assert c.get("k") == "secret"
