@@ -1,12 +1,13 @@
-"""Health probes and metrics."""
+"""Health, readiness, deps, metrics."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from api.schemas import HealthResponse
+from api.schemas import DepsResponse, HealthResponse
 from src.config import get_settings
+from src.health_check import aggregate
 
 router = APIRouter(tags=["system"])
 
@@ -27,6 +28,11 @@ async def ready() -> dict[str, str]:
     s = get_settings()
     ok = (s.vectorstore_path / "index.faiss").exists() and s.config_path.exists()
     return {"status": "ready" if ok else "not_ready"}
+
+
+@router.get("/health/deps", response_model=DepsResponse)
+async def deps() -> DepsResponse:
+    return DepsResponse(**aggregate())
 
 
 @router.get("/metrics")
