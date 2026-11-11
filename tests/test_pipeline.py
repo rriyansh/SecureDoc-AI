@@ -1,4 +1,4 @@
-"""Tests for guarded pipeline."""
+"""Tests for pipeline."""
 
 from unittest.mock import MagicMock, patch
 
@@ -34,7 +34,7 @@ def test_safe_query_blocks_injection():
     chain.invoke.assert_not_called()
 
 
-def test_safe_query_redacts_pii_in_output():
+def test_safe_query_redacts_pii():
     chain = MagicMock()
     chain.invoke.return_value = "Contact a@b.com please."
     out = rag_pipeline.safe_query(chain, "How to contact?")
