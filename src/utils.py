@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from typing import Any, Iterable
 
 from src.logger import get_logger
 
@@ -26,7 +27,7 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def format_docs(docs: list) -> str:
+def format_docs(docs: Iterable[Any]) -> str:
     return "\n\n---\n\n".join(getattr(d, "page_content", str(d)) for d in docs)
 
 
@@ -39,3 +40,17 @@ def truncate(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3] + "..."
+
+
+def stable_hash(*parts: str) -> str:
+    h = hashlib.sha256()
+    for p in parts:
+        h.update(p.encode("utf-8"))
+        h.update(b"|")
+    return h.hexdigest()
+
+
+def mask_secret(secret: str, visible: int = 4) -> str:
+    if len(secret) <= visible:
+        return "***"
+    return secret[:visible] + "***" + secret[-2:]
