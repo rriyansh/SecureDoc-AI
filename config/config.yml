@@ -15,6 +15,7 @@ rails:
     flows:
       - block prompt injection
       - block harmful request
+      - block encoded payload
   output:
     flows:
       - block ungrounded response
