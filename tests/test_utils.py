@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.utils import clean_text, file_hash, format_docs, truncate
+from src.utils import clean_text, file_hash, format_docs, stable_hash, truncate
 
 
 def test_clean_text_whitespace():
@@ -29,3 +29,8 @@ def test_format_docs():
 def test_truncate():
     assert truncate("abcdef", 6) == "abcdef"
     assert truncate("abcdefghij", 6) == "abc..."
+
+
+def test_stable_hash_deterministic():
+    assert stable_hash("a", "b") == stable_hash("a", "b")
+    assert stable_hash("a", "b") != stable_hash("a", "c")
