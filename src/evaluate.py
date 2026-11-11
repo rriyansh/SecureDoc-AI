@@ -1,4 +1,4 @@
-"""RAGAS evaluation using LangChain-wrapped LLM/embeddings."""
+"""RAGAS evaluation with Langchain wrappers."""
 
 from __future__ import annotations
 
