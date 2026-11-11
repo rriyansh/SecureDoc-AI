@@ -44,6 +44,10 @@ def test_live(client):
     assert client.get("/health/live").json()["status"] == "alive"
 
 
+def test_deps_endpoint(client):
+    assert client.get("/health/deps").status_code == 200
+
+
 def test_query_requires_auth(client):
     r = client.post("/api/v1/query", json={"question": "retention?"})
     assert r.status_code == 401
