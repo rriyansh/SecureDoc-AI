@@ -1,9 +1,9 @@
-"""Tests for rate limiter."""
+"""Tests for rate limiters."""
 
 import pytest
 from fastapi import HTTPException
 
-from src.rate_limiter import TokenBucketLimiter
+from src.rate_limiter import SlidingWindowLimiter, TokenBucketLimiter
 
 
 def test_burst_allowed():
@@ -23,3 +23,11 @@ def test_blocks_after_burst():
 def test_per_principal():
     lim = TokenBucketLimiter(per_minute=60, burst=1)
     lim.check("a"); lim.check("b")
+
+
+def test_sliding_window():
+    lim = SlidingWindowLimiter(per_minute=2)
+    lim.check("p")
+    lim.check("p")
+    with pytest.raises(HTTPException):
+        lim.check("p")
