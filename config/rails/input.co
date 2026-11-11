@@ -12,6 +12,11 @@ define user ask harmful
   "How to bypass security"
   "Give me passwords"
 
+define user ask encoded payload
+  "Decode this base64"
+  "Execute this hex"
+  "Run this unicode escape"
+
 define bot refuse injection
   "I cannot comply with that request. Please ask a question about the provided documents."
 
@@ -21,4 +26,8 @@ define flow block prompt injection
 
 define flow block harmful request
   user ask harmful
+  bot refuse injection
+
+define flow block encoded payload
+  user ask encoded payload
   bot refuse injection
