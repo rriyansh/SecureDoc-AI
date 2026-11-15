@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}API Keys - SecureDoc AI{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">API Keys</h2>
+        <a href="/admin/keys/create" class="btn btn-primary">Create Key</a>
+    </div>
+    
+    {% if keys %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Key ID</th>
+                <th>Scopes</th>
+                <th>Status</th>
+                <th>Last Used</th>
+                <th>Expires</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for key in keys %}
+            <tr>
+                <td>{{ key.name }}</td>
+                <td><code>{{ key.key_id[:8] }}...</code></td>
+                <td>
+                    {% for scope in key.scopes %}
+                        <span class="badge badge-success">{{ scope }}</span>
+                    {% endfor %}
+                </td>
+                <td>
+                    <span class="badge badge-{{ 'success' if key.is_active else 'danger' }}">
+                        {{ 'Active' if key.is_active else 'Revoked' }}
+                    </span>
+                </td>
+                <td>{{ key.last_used_at.strftime('%Y-%m-%d %H:%M') if key.last_used_at else 'Never' }}</td>
+                <td>{{ key.expires_at.strftime('%Y-%m-%d') if key.expires_at else 'Never' }}</td>
+                <td>
+                    {% if key.is_active %}
+                    <form method="POST" action="/admin/keys/{{ key.id }}/revoke" style="display: inline;">
+                        <button type="submit" class="btn btn-danger" onclick="return confirm('Revoke this API key?')">Revoke</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: var(--text-muted); padding: 2rem;">No API keys found. <a href="/admin/keys/create">Create one</a>.</p>
+    {% endif %}
+</div>
+{% endblock %}

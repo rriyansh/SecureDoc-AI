@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SecureDoc AI{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1>SecureDoc AI</h1>
+            <nav class="nav">
+                <a href="/admin" class="{% if request.path == '/admin' %}active{% endif %}">Dashboard</a>
+                <a href="/admin/keys" class="{% if request.path == '/admin/keys' %}active{% endif %}">API Keys</a>
+                <a href="/docs" target="_blank">API Docs</a>
+            </nav>
+        </div>
+    </header>
+    
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        {% block content %}{% endblock %}
+    </main>
+    
+    <footer style="text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.875rem;">
+        SecureDoc AI - Guardrailed Enterprise RAG Infrastructure
+    </footer>
+</body>
+</html>

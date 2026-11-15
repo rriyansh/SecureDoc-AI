@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - SecureDoc AI{% endblock %}
+
+{% block content %}
+<div class="grid grid-3">
+    <div class="stat-card">
+        <div class="stat-label">Total Queries</div>
+        <div class="stat-value">{{ stats.total_queries or 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Active API Keys</div>
+        <div class="stat-value">{{ stats.active_keys or 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Documents Indexed</div>
+        <div class="stat-value">{{ stats.indexed_docs or 0 }}</div>
+    </div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Recent Activity</h2>
+        </div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Event</th>
+                    <th>User</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in recent_events %}
+                <tr>
+                    <td>{{ event.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ event.event_type }}</td>
+                    <td>{{ event.user_id or 'Anonymous' }}</td>
+                    <td><span class="badge badge-{{ 'success' if event.outcome == 'success' else 'danger' }}">{{ event.outcome }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" style="text-align: center; color: var(--text-muted);">No recent activity</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">System Health</h2>
+        </div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Component</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>API</td>
+                    <td><span class="badge badge-success">Healthy</span></td>
+                </tr>
+                <tr>
+                    <td>Vector Store</td>
+                    <td><span class="badge badge-success">Connected</span></td>
+                </tr>
+                <tr>
+                    <td>Cache</td>
+                    <td><span class="badge badge-success">Operational</span></td>
+                </tr>
+                <tr>
+                    <td>Database</td>
+                    <td><span class="badge badge-success">Connected</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
